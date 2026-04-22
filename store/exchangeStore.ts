@@ -38,7 +38,7 @@ interface ExchangeState {
   setIsUpdating: (updating: boolean) => void;
   setPriceCache: (key: string, data: PriceCache) => void;
   getPriceCache: (key: string) => PriceCache | null;
-  getCoinPrice: (symbol: string) => number | null;
+  clearPrice: () => void;
   swapCoins: () => void;
   reset: () => void;
 }
@@ -61,50 +61,54 @@ export const useExchangeStore = create<ExchangeState>((set, get) => ({
   setFromCoin: (fromCoin) => set({ fromCoin }),
   setToCoin: (toCoin) => set({ toCoin }),
   setAmount: (amount) => set({ amount }),
+
+  // setPrice ALSO clears loading to ensure state sync
   setPrice: (price, marketRate, total, priceValidUntil, fallback = false, message = '') =>
-    set({ price, marketRate, total, priceValidUntil, fallback, priceMessage: message }),
+    set({ price, marketRate, total, priceValidUntil, fallback, priceMessage: message, loading: false }),
+
   setLoading: (loading) => set({ loading }),
   setIsUpdating: (isUpdating) => set({ isUpdating }),
+
   setPriceCache: (key, data) =>
     set((state) => ({
       priceCache: { ...state.priceCache, [key]: data },
     })),
+
   getPriceCache: (key) => {
     const cache = get().priceCache;
     return cache[key] || null;
   },
-  getCoinPrice: (symbol) => {
-    const cache = get().priceCache;
-    // Try exact symbol match first
-    if (cache[symbol] && Date.now() - cache[symbol].timestamp < 20000) {
-      return cache[symbol].price;
-    }
-    return null;
-  },
-  swapCoins: () =>
-    set((state) => ({
-      fromCoin: state.toCoin,
-      toCoin: state.fromCoin,
-    })),
-  reset: () =>
-    set({
-      fromCoin: null,
-      toCoin: null,
-      amount: '1',
-      price: 0,
-      total: 0,
-      marketRate: 0,
-      loading: false,
-      isUpdating: false,
-      priceValidUntil: null,
-      fallback: false,
-      priceMessage: '',
-    }),
+
+  // Clear price when coins change - prevents stale display
+  clearPrice: () => set({ price: 0, total: 0, marketRate: 0, priceValidUntil: null }),
+
+  swapCoins: () => set((state) => ({
+    fromCoin: state.toCoin,
+    toCoin: state.fromCoin,
+    // Reset price when swapping to force reload
+    price: 0,
+    total: 0,
+    marketRate: 0,
+    priceValidUntil: null,
+  })),
+
+  reset: () => set({
+    fromCoin: null,
+    toCoin: null,
+    amount: '1',
+    price: 0,
+    total: 0,
+    marketRate: 0,
+    loading: false,
+    isUpdating: false,
+    priceValidUntil: null,
+    fallback: false,
+    priceMessage: '',
+  }),
 }));
 
 /**
- * Preload prices for popular coins
- * Stores individual coin prices so pair lookups can combine them
+ * Preload prices for popular coin pairs on app start
  */
 export async function preloadPrices() {
   const POPULAR_PAIRS = [

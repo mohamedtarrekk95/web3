@@ -6,9 +6,7 @@ import { useExchangeStore, preloadPrices } from '@/store/exchangeStore';
 import CoinSelector from './CoinSelector';
 
 const POLLING_INTERVAL = 15000; // 15 seconds
-
-// Cache freshness window (20 seconds)
-const CACHE_FRESH_MS = 20000;
+const CACHE_FRESH_MS = 20000; // 20 seconds
 
 function ExchangeWidgetComponent() {
   const router = useRouter();
@@ -32,7 +30,6 @@ function ExchangeWidgetComponent() {
     setLoading,
     setIsUpdating,
     getPriceCache,
-    getCoinPrice,
     swapCoins,
   } = useExchangeStore();
 
@@ -40,7 +37,8 @@ function ExchangeWidgetComponent() {
   const [isSwapping, setIsSwapping] = useState(false);
   const pollingRef = useRef<NodeJS.Timeout | null>(null);
   const mountedRef = useRef(true);
-  const lastFetchRef = useRef<string>('');
+  const fetchControllerRef = useRef<AbortController | null>(null);
+  const lastCacheKeyRef = useRef<string>('');
 
   // Check if cache exists and is fresh
   const hasFreshCache = useCallback((from: string, to: string): boolean => {
@@ -49,36 +47,71 @@ function ExchangeWidgetComponent() {
     return cached !== null && Date.now() - cached.timestamp < CACHE_FRESH_MS;
   }, [getPriceCache]);
 
-  // Fetch price from API (never blocks UI)
+  // Fetch price from API - properly handles loading state
   const fetchPrice = useCallback(async (forceRefresh = false) => {
-    if (!fromCoin || !toCoin || !amount || parseFloat(amount) <= 0) return;
-
-    const cacheKey = `${fromCoin.symbol}-${toCoin.symbol}`;
-    if (!forceRefresh && hasFreshCache(fromCoin.symbol, toCoin.symbol)) {
-      return; // Use cached value
+    if (!fromCoin || !toCoin || !amount || parseFloat(amount) <= 0) {
+      setLoading(false);
+      return;
     }
 
-    // Avoid duplicate requests
-    if (lastFetchRef.current === cacheKey && !forceRefresh) return;
-    lastFetchRef.current = cacheKey;
+    const cacheKey = `${fromCoin.symbol}-${toCoin.symbol}`;
+
+    // Skip if cache is fresh (unless forced)
+    if (!forceRefresh && hasFreshCache(fromCoin.symbol, toCoin.symbol)) {
+      return;
+    }
+
+    // Abort any in-flight request
+    if (fetchControllerRef.current) {
+      fetchControllerRef.current.abort();
+    }
+    fetchControllerRef.current = new AbortController();
+
+    // If we already have a price showing (cached), this is a background refresh
+    const isBackgroundRefresh = price > 0 && Number.isFinite(price);
+    if (!isBackgroundRefresh) {
+      setLoading(true);
+    } else {
+      setIsUpdating(true);
+    }
 
     try {
-      const res = await fetch(`/api/price?from=${fromCoin.symbol}&to=${toCoin.symbol}&amount=${amount}`);
-      if (!res.ok) return;
+      const res = await fetch(
+        `/api/price?from=${fromCoin.symbol}&to=${toCoin.symbol}&amount=${amount}`,
+        { signal: fetchControllerRef.current.signal }
+      );
+
+      if (!res.ok) throw new Error('API error');
 
       const data = await res.json();
+
+      // Check if component is still mounted and we got valid data
       if (!mountedRef.current) return;
 
       if (data.rate > 0) {
+        // SUCCESS: Update price and clear loading state
         setPrice(data.rate, data.marketRate, data.total, data.validUntil, data.fallback, data.message);
+        setLoading(false);
+        setIsUpdating(false);
         setTimeLeft(60);
+        lastCacheKeyRef.current = cacheKey;
+      } else {
+        // API returned 0 rate - keep loading or show error
+        setLoading(false);
+        setIsUpdating(false);
       }
     } catch (error) {
+      if (error instanceof Error && error.name === 'AbortError') {
+        // Request was cancelled - that's fine, ignore
+        return;
+      }
       console.warn('Price fetch error:', error);
+      setLoading(false);
+      setIsUpdating(false);
     }
-  }, [fromCoin, toCoin, amount, setPrice, getPriceCache, hasFreshCache]);
+  }, [fromCoin, toCoin, amount, price, setPrice, setLoading, setIsUpdating, getPriceCache, hasFreshCache]);
 
-  // Initial setup - runs once
+  // Initial setup - runs once on mount
   useEffect(() => {
     mountedRef.current = true;
 
@@ -99,14 +132,14 @@ function ExchangeWidgetComponent() {
     }
 
     init();
-    preloadPrices(); // Fire and forget
+    preloadPrices();
 
     return () => {
       mountedRef.current = false;
     };
   }, [setCoins, setFromCoin, setToCoin]);
 
-  // When coins change - show cached price instantly, then fetch
+  // When coins change - show cached price instantly, then fetch fresh
   useEffect(() => {
     if (!fromCoin || !toCoin) return;
 
@@ -114,33 +147,30 @@ function ExchangeWidgetComponent() {
     const cached = getPriceCache(cacheKey);
 
     if (cached) {
-      // Show cached price INSTANTLY
+      // CACHE HIT: Show cached price immediately, no loading
       setPrice(cached.price, cached.marketRate, cached.total, Date.now() + 60000, cached.fallback, 'Cached');
-      setLoading(false);
+      setLoading(false); // <-- CRITICAL: loading is false when we have cache
 
-      // If cache is stale, fetch fresh in background
+      // Background refresh if cache is getting stale (>10s old)
       if (Date.now() - cached.timestamp > 10000) {
         fetchPrice(true);
       }
     } else {
-      // No cache - show loading state
+      // CACHE MISS: Show loading while fetching
       setLoading(true);
-      fetchPrice(true);
+      fetchPrice(false);
     }
-  }, [fromCoin?.symbol, toCoin?.symbol]); // Only re-run when symbols change
+  }, [fromCoin?.symbol, toCoin?.symbol]); // Only depend on symbol changes
 
   // Countdown timer
   useEffect(() => {
     const interval = setInterval(() => {
-      setTimeLeft((prev) => {
-        if (prev <= 1) return 60;
-        return prev - 1;
-      });
+      setTimeLeft((prev) => (prev <= 1 ? 60 : prev - 1));
     }, 1000);
     return () => clearInterval(interval);
   }, []);
 
-  // Polling - refresh every 15 seconds
+  // Polling - silent refresh every 15 seconds
   useEffect(() => {
     if (!fromCoin || !toCoin) return;
 
@@ -193,9 +223,8 @@ function ExchangeWidgetComponent() {
     return num.toFixed(decimals).replace(/\.?0+$/, '');
   }, []);
 
-  // What to show in the price display
+  // Display content for price box
   const getDisplayContent = () => {
-    // Loading spinner
     if (loading) {
       return (
         <div className="flex items-center gap-2">
@@ -205,12 +234,10 @@ function ExchangeWidgetComponent() {
       );
     }
 
-    // No valid price yet
     if (!Number.isFinite(total) || total <= 0) {
       return <span className="text-gray-500">Enter amount</span>;
     }
 
-    // Valid price
     return <span className="tabular-nums">{formatNumber(total)}</span>;
   };
 
@@ -347,8 +374,10 @@ function ExchangeWidgetComponent() {
               'Select coins to exchange'
             ) : !amount || parseFloat(amount) <= 0 ? (
               'Enter amount'
-            ) : total <= 0 ? (
+            ) : loading ? (
               'Loading...'
+            ) : total <= 0 ? (
+              'Enter valid amount'
             ) : (
               'Exchange Now'
             )}
@@ -359,5 +388,4 @@ function ExchangeWidgetComponent() {
   );
 }
 
-// Memoize to prevent unnecessary re-renders
 export default memo(ExchangeWidgetComponent);
