@@ -21,23 +21,13 @@ const SYMBOL_TO_ID: Record<string, string> = {
   UNI: 'uniswap',
 };
 
-// Reverse mapping (CoinGecko ID to symbol)
-const ID_TO_SYMBOL: Record<string, string> = Object.fromEntries(
-  Object.entries(SYMBOL_TO_ID).map(([k, v]) => [v, k])
-);
-
 // Supported coins (our internal symbols)
 const SUPPORTED_COINS = new Set(Object.keys(SYMBOL_TO_ID));
 
-interface PriceResult {
-  price: number;
-  symbol: string;
-  id: string;
-}
-
-interface PriceCache {
+interface CachedPrice {
   price: number;
   timestamp: number;
+  source: 'api' | 'fallback';
 }
 
 interface CoinGeckoPriceData {
@@ -46,9 +36,10 @@ interface CoinGeckoPriceData {
   };
 }
 
-const priceCache: Map<string, PriceCache> = new Map();
-const CACHE_DURATION = 10000; // 10 seconds
-const MAX_RETRIES = 2;
+// In-memory cache with fallback support
+const priceCache: Map<string, CachedPrice> = new Map();
+const CACHE_DURATION = 20000; // 20 seconds
+const STALE_CACHE_DURATION = 300000; // 5 minutes - use stale cache if no fresh data
 
 export function isSupportedCoin(symbol: string): boolean {
   return SUPPORTED_COINS.has(symbol.toUpperCase());
@@ -58,16 +49,6 @@ export function getSupportedCoins(): string[] {
   return Array.from(SUPPORTED_COINS).sort();
 }
 
-/**
- * Get CoinGecko ID from our internal symbol
- */
-export function getCoinGeckoId(symbol: string): string | null {
-  return SYMBOL_TO_ID[symbol.toUpperCase()] || null;
-}
-
-/**
- * Validates that a symbol exists in our whitelist
- */
 export function validateSymbol(symbol: string): { valid: boolean; symbol: string; error?: string } {
   const upper = symbol.toUpperCase();
   if (!SUPPORTED_COINS.has(upper)) {
@@ -81,135 +62,206 @@ export function validateSymbol(symbol: string): { valid: boolean; symbol: string
 }
 
 /**
- * Fetches price from CoinGecko API with retry logic and cache fallback
+ * Checks if cached price is fresh
  */
-export async function getCoinGeckoPrice(symbol: string): Promise<PriceResult> {
-  const cacheKey = symbol.toUpperCase();
+function isCacheFresh(cacheKey: string): boolean {
   const cached = priceCache.get(cacheKey);
+  if (!cached) return false;
+  return Date.now() - cached.timestamp < CACHE_DURATION;
+}
 
-  // Return cached price if still valid
-  if (cached && Date.now() - cached.timestamp < CACHE_DURATION) {
-    return { price: cached.price, symbol: cacheKey, id: SYMBOL_TO_ID[cacheKey] };
+/**
+ * Gets any cached price (fresh or stale), preferring fresh
+ */
+function getCachedPrice(symbol: string): number | null {
+  const cached = priceCache.get(symbol.toUpperCase());
+  if (!cached) return null;
+  if (Date.now() - cached.timestamp < STALE_CACHE_DURATION) {
+    return cached.price;
   }
+  return null;
+}
 
+/**
+ * Stores price in cache
+ */
+function setCachedPrice(symbol: string, price: number, source: 'api' | 'fallback' = 'api'): void {
+  priceCache.set(symbol.toUpperCase(), {
+    price,
+    timestamp: Date.now(),
+    source,
+  });
+}
+
+/**
+ * Fetches price from CoinGecko with retry + fallback
+ */
+async function fetchPriceWithFallback(symbol: string): Promise<CachedPrice> {
+  const cacheKey = symbol.toUpperCase();
   const coinId = SYMBOL_TO_ID[cacheKey];
+
   if (!coinId) {
     throw new Error(`Unknown symbol: ${cacheKey}`);
   }
 
-  let lastError: Error | null = null;
-
-  for (let attempt = 0; attempt <= MAX_RETRIES; attempt++) {
-    try {
-      const url = `${COINGECKO_API}/simple/price?ids=${coinId}&vs_currencies=usd`;
-      const response = await fetch(url, {
-        signal: AbortSignal.timeout(8000),
-      });
-
-      if (!response.ok) {
-        if (cached) {
-          return { price: cached.price, symbol: cacheKey, id: coinId };
-        }
-        throw new Error(`CoinGecko API error: ${response.status}`);
-      }
-
-      const data: CoinGeckoPriceData = await response.json();
-
-      // Validate response structure
-      if (!data || !data[coinId] || typeof data[coinId].usd === 'undefined') {
-        throw new Error(`Invalid response for ${coinId}`);
-      }
-
-      const price = data[coinId].usd;
-
-      // Validate parsed price
-      if (!Number.isFinite(price) || price <= 0 || isNaN(price)) {
-        throw new Error(`Invalid price value for ${coinId}: ${price}`);
-      }
-
-      // Cache valid price
-      priceCache.set(cacheKey, { price, timestamp: Date.now() });
-      return { price, symbol: cacheKey, id: coinId };
-
-    } catch (error) {
-      lastError = error instanceof Error ? error : new Error(String(error));
-
-      // Use stale cache on retry attempts
-      if (cached && attempt > 0) {
-        return { price: cached.price, symbol: cacheKey, id: coinId };
-      }
-    }
+  // Try from cache first
+  if (isCacheFresh(cacheKey)) {
+    return priceCache.get(cacheKey)!;
   }
 
-  // Last resort: return stale cache if available
-  if (cached) {
-    return { price: cached.price, symbol: cacheKey, id: coinId };
+  // First attempt
+  try {
+    const price = await fetchFromCoinGecko(coinId);
+    setCachedPrice(cacheKey, price, 'api');
+    return priceCache.get(cacheKey)!;
+  } catch (error) {
+    console.warn(`CoinGecko attempt 1 failed for ${cacheKey}:`, error);
   }
 
-  throw lastError || new Error(`Failed to fetch price for ${cacheKey}`);
+  // Wait 500ms and retry once
+  await new Promise(resolve => setTimeout(resolve, 500));
+
+  try {
+    const price = await fetchFromCoinGecko(coinId);
+    setCachedPrice(cacheKey, price, 'api');
+    return priceCache.get(cacheKey)!;
+  } catch (error) {
+    console.warn(`CoinGecko attempt 2 failed for ${cacheKey}:`, error);
+  }
+
+  // All attempts failed - try any cached value (even stale)
+  const fallbackPrice = getCachedPrice(cacheKey);
+  if (fallbackPrice !== null) {
+    return {
+      price: fallbackPrice,
+      timestamp: Date.now(),
+      source: 'fallback',
+    };
+  }
+
+  // No fallback available - try to get price anyway (may throw)
+  const lastResort = await fetchFromCoinGecko(coinId);
+  return {
+    price: lastResort,
+    timestamp: Date.now(),
+    source: 'api',
+  };
 }
 
 /**
- * Calculates exchange rate using CoinGecko USD prices.
- * Rate = fromPrice / toPrice (both in USD)
+ * Direct CoinGecko API call
  */
-export async function getExchangeRate(from: string, to: string): Promise<number> {
+async function fetchFromCoinGecko(coinId: string): Promise<number> {
+  const url = `${COINGECKO_API}/simple/price?ids=${coinId}&vs_currencies=usd`;
+  const response = await fetch(url, {
+    signal: AbortSignal.timeout(8000),
+  });
+
+  if (!response.ok) {
+    throw new Error(`CoinGecko API error: ${response.status}`);
+  }
+
+  const data: CoinGeckoPriceData = await response.json();
+
+  if (!data || !data[coinId] || typeof data[coinId].usd === 'undefined') {
+    throw new Error(`Invalid response for ${coinId}`);
+  }
+
+  const price = data[coinId].usd;
+
+  if (!Number.isFinite(price) || price <= 0 || isNaN(price)) {
+    throw new Error(`Invalid price value: ${price}`);
+  }
+
+  return price;
+}
+
+/**
+ * Gets exchange rate between two coins.
+ * NEVER throws - always returns a valid rate (real or fallback)
+ */
+export async function getExchangeRate(from: string, to: string): Promise<{
+  rate: number;
+  fallback: boolean;
+  message: string;
+}> {
   const fromSymbol = from.toUpperCase();
   const toSymbol = to.toUpperCase();
 
-  // Same coin - return 1
+  // Same coin - instant 1:1
   if (fromSymbol === toSymbol) {
-    return 1;
+    return {
+      rate: 1,
+      fallback: false,
+      message: 'Same coin',
+    };
   }
 
-  // Validate both coins upfront
-  const fromValidation = validateSymbol(fromSymbol);
-  if (!fromValidation.valid) {
-    throw new Error(fromValidation.error);
+  // Validate coins
+  if (!isSupportedCoin(fromSymbol)) {
+    return { rate: 0, fallback: true, message: `Unsupported coin: ${fromSymbol}` };
   }
-
-  const toValidation = validateSymbol(toSymbol);
-  if (!toValidation.valid) {
-    throw new Error(toValidation.error);
+  if (!isSupportedCoin(toSymbol)) {
+    return { rate: 0, fallback: true, message: `Unsupported coin: ${toSymbol}` };
   }
 
   try {
-    // Fetch both prices in parallel from CoinGecko
-    const [fromResult, toResult] = await Promise.all([
-      getCoinGeckoPrice(fromSymbol),
-      getCoinGeckoPrice(toSymbol),
+    // Fetch both prices with fallback support
+    const [fromPrice, toPrice] = await Promise.all([
+      fetchPriceWithFallback(fromSymbol),
+      fetchPriceWithFallback(toSymbol),
     ]);
 
-    const { price: fromPrice } = fromResult;
-    const { price: toPrice } = toResult;
+    const { price: fromUSD } = fromPrice;
+    const { price: toUSD } = toPrice;
 
-    // Validate prices before division
-    if (!Number.isFinite(fromPrice) || fromPrice <= 0 || isNaN(fromPrice)) {
-      throw new Error(`Invalid USD price for ${fromSymbol}`);
+    // Validate prices
+    if (!Number.isFinite(fromUSD) || fromUSD <= 0 || isNaN(fromUSD)) {
+      return { rate: 0, fallback: true, message: `Invalid price for ${fromSymbol}` };
     }
-    if (!Number.isFinite(toPrice) || toPrice <= 0 || isNaN(toPrice)) {
-      throw new Error(`Invalid USD price for ${toSymbol}`);
+    if (!Number.isFinite(toUSD) || toUSD <= 0 || isNaN(toUSD)) {
+      return { rate: 0, fallback: true, message: `Invalid price for ${toSymbol}` };
     }
 
-    const rate = fromPrice / toPrice;
+    const rate = fromUSD / toUSD;
 
-    // Final validation of calculated rate
+    // Final validation
     if (!Number.isFinite(rate) || isNaN(rate) || rate <= 0 || rate > 1e10) {
-      throw new Error(`Invalid exchange rate calculated: ${rate}`);
+      return { rate: 0, fallback: true, message: 'Invalid rate calculation' };
     }
 
-    return rate;
+    const isFallback = fromPrice.source === 'fallback' || toPrice.source === 'fallback';
+
+    return {
+      rate,
+      fallback: isFallback,
+      message: isFallback ? 'Using last known price' : 'Live rate',
+    };
 
   } catch (error) {
-    if (error instanceof Error) {
-      if (error.message.includes('Unsupported')) {
-        throw error;
-      }
-      if (error.message.includes('Invalid') || error.message.includes('Failed')) {
-        throw error;
+    console.error(`Exchange rate error for ${fromSymbol}/${toSymbol}:`, error);
+
+    // Try to get any cached value
+    const fromCached = getCachedPrice(fromSymbol);
+    const toCached = getCachedPrice(toSymbol);
+
+    if (fromCached !== null && toCached !== null) {
+      const rate = fromCached / toCached;
+      if (Number.isFinite(rate) && rate > 0) {
+        return {
+          rate,
+          fallback: true,
+          message: 'Using last known price',
+        };
       }
     }
-    throw new Error(`Exchange rate unavailable for ${fromSymbol}/${toSymbol}`);
+
+    // Last resort - return 0, let frontend handle display
+    return {
+      rate: 0,
+      fallback: true,
+      message: 'Price unavailable',
+    };
   }
 }
 
@@ -224,13 +276,17 @@ export function applyMargin(price: number, margin: number = 0.018): number {
 }
 
 /**
- * Get current cache status (for debugging)
+ * Get all cached prices for debugging
  */
-export function getCacheStatus(): { size: number; entries: string[] } {
-  const entries: string[] = [];
+export function getCacheStatus(): { size: number; coins: Record<string, { price: number; age: number; fresh: boolean }> } {
+  const coins: Record<string, { price: number; age: number; fresh: boolean }> = {};
   for (const [symbol, data] of priceCache.entries()) {
-    const age = Date.now() - data.timestamp;
-    entries.push(`${symbol}: ${data.price.toFixed(2)} (${Math.round(age / 1000)}s ago)`);
+    const age = Math.round((Date.now() - data.timestamp) / 1000);
+    coins[symbol] = {
+      price: data.price,
+      age,
+      fresh: Date.now() - data.timestamp < CACHE_DURATION,
+    };
   }
-  return { size: priceCache.size, entries };
+  return { size: priceCache.size, coins };
 }
