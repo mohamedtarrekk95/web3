@@ -1,11 +1,9 @@
 const BINANCE_API = 'https://api.binance.com/api/v3/ticker/price';
 
-// Whitelist of supported coins that have USDT trading pairs on Binance
+// Top 15 supported cryptocurrencies with USDT trading pairs on Binance
 const SUPPORTED_COINS = new Set([
   'BTC', 'ETH', 'USDT', 'BNB', 'SOL', 'XRP', 'ADA', 'DOGE',
-  'DOT', 'MATIC', 'LTC', 'AVAX', 'LINK', 'UNI', 'ATOM',
-  'XLM', 'ALGO', 'VET', 'FIL', 'THETA', 'AAVE', 'EOS',
-  'TRX', 'XTZ', 'CAKE', 'DASH', 'MKR', 'COMP', 'SNX',
+  'AVAX', 'MATIC', 'DOT', 'LTC', 'TRX', 'BCH', 'LINK', 'UNI',
 ]);
 
 interface PriceResult {
@@ -27,7 +25,22 @@ export function isSupportedCoin(symbol: string): boolean {
 }
 
 export function getSupportedCoins(): string[] {
-  return Array.from(SUPPORTED_COINS);
+  return Array.from(SUPPORTED_COINS).sort();
+}
+
+/**
+ * Validates that a symbol exists in our whitelist
+ */
+export function validateSymbol(symbol: string): { valid: boolean; symbol: string; error?: string } {
+  const upper = symbol.toUpperCase();
+  if (!SUPPORTED_COINS.has(upper)) {
+    return {
+      valid: false,
+      symbol: upper,
+      error: `Unsupported cryptocurrency: ${upper}. Supported: ${getSupportedCoins().join(', ')}`,
+    };
+  }
+  return { valid: true, symbol: upper };
 }
 
 /**
@@ -61,15 +74,15 @@ export async function getBinancePrice(symbol: string): Promise<PriceResult> {
       const data = await response.json();
 
       // Validate response structure
-      if (!data || typeof data.price === 'undefined') {
+      if (!data || typeof data.price === 'undefined' || data.price === null) {
         throw new Error('Invalid API response structure');
       }
 
       const price = parseFloat(data.price);
 
       // Validate parsed price
-      if (!Number.isFinite(price) || price <= 0) {
-        throw new Error(`Invalid price value: ${data.price}`);
+      if (!Number.isFinite(price) || price <= 0 || isNaN(price)) {
+        throw new Error(`Invalid price value for ${cacheKey}`);
       }
 
       // Cache valid price
@@ -96,7 +109,7 @@ export async function getBinancePrice(symbol: string): Promise<PriceResult> {
 
 /**
  * Calculates exchange rate using ONLY USDT as intermediate currency.
- * This ensures all trading pairs work by going: FROM -> USDT -> TO
+ * Rate = (FROM/USDT) / (TO/USDT)
  */
 export async function getExchangeRate(from: string, to: string): Promise<number> {
   const fromSymbol = from.toUpperCase();
@@ -107,44 +120,52 @@ export async function getExchangeRate(from: string, to: string): Promise<number>
     return 1;
   }
 
-  // Both must be supported
-  if (!isSupportedCoin(fromSymbol)) {
-    throw new Error(`Unsupported coin: ${fromSymbol}`);
+  // Validate both coins
+  const fromValidation = validateSymbol(fromSymbol);
+  if (!fromValidation.valid) {
+    throw new Error(fromValidation.error);
   }
-  if (!isSupportedCoin(toSymbol)) {
-    throw new Error(`Unsupported coin: ${toSymbol}`);
+
+  const toValidation = validateSymbol(toSymbol);
+  if (!toValidation.valid) {
+    throw new Error(toValidation.error);
   }
 
   try {
-    // Get USDT prices for both coins
+    // Fetch both USDT prices in parallel
     const [fromResult, toResult] = await Promise.all([
       getBinancePrice(`${fromSymbol}USDT`),
       getBinancePrice(`${toSymbol}USDT`),
     ]);
 
-    const { price: fromUSDT, symbol: fromSym } = fromResult;
-    const { price: toUSDT, symbol: toSym } = toResult;
+    const { price: fromUSDT } = fromResult;
+    const { price: toUSDT } = toResult;
 
-    // Prevent division by zero and invalid results
-    if (!Number.isFinite(fromUSDT) || fromUSDT <= 0) {
-      throw new Error(`Invalid USDT price for ${fromSym}`);
+    // Validate prices before division
+    if (!Number.isFinite(fromUSDT) || fromUSDT <= 0 || isNaN(fromUSDT)) {
+      throw new Error(`Invalid USDT price for ${fromSymbol}`);
     }
-    if (!Number.isFinite(toUSDT) || toUSDT <= 0) {
-      throw new Error(`Invalid USDT price for ${toSym}`);
+    if (!Number.isFinite(toUSDT) || toUSDT <= 0 || isNaN(toUSDT)) {
+      throw new Error(`Invalid USDT price for ${toSymbol}`);
     }
 
     const rate = fromUSDT / toUSDT;
 
-    // Final validation
-    if (!Number.isFinite(rate) || rate <= 0 || rate > 1e10) {
-      throw new Error(`Calculated invalid rate: ${rate}`);
+    // Final validation of calculated rate
+    if (!Number.isFinite(rate) || isNaN(rate) || rate <= 0 || rate > 1e10) {
+      throw new Error(`Invalid exchange rate calculated: ${rate}`);
     }
 
     return rate;
 
   } catch (error) {
-    if (error instanceof Error && error.message.startsWith('Unsupported coin')) {
-      throw error;
+    if (error instanceof Error) {
+      if (error.message.includes('Unsupported')) {
+        throw error;
+      }
+      if (error.message.includes('Invalid')) {
+        throw error;
+      }
     }
     throw new Error(`Exchange rate unavailable for ${fromSymbol}/${toSymbol}`);
   }
@@ -154,7 +175,7 @@ export async function getExchangeRate(from: string, to: string): Promise<number>
  * Applies platform margin to the price
  */
 export function applyMargin(price: number, margin: number = 0.018): number {
-  if (!Number.isFinite(price) || price <= 0) {
+  if (!Number.isFinite(price) || price <= 0 || isNaN(price)) {
     return 0;
   }
   return price * (1 - margin);

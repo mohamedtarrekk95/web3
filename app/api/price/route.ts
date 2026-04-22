@@ -1,5 +1,5 @@
 import { NextResponse } from 'next/server';
-import { getExchangeRate, applyMargin, isSupportedCoin, getSupportedCoins } from '@/lib/binance';
+import { getExchangeRate, applyMargin, isSupportedCoin, getSupportedCoins, validateSymbol } from '@/lib/binance';
 import { apiRateLimiter } from '@/lib/rateLimit';
 
 const MARGIN = 0.018;
@@ -28,15 +28,15 @@ export async function GET(request: Request) {
     const to = searchParams.get('to');
     const amount = parseFloat(searchParams.get('amount') || '1');
 
-    // Validate required params
+    // Validate required params exist
     if (!from || !to) {
       return NextResponse.json(
-        { error: 'Missing "from" or "to" parameter' },
+        { error: 'Missing "from" or "to" parameter', supportedCoins: getSupportedCoins() },
         { status: 400 }
       );
     }
 
-    // Validate amount
+    // Validate amount is a positive number
     if (isNaN(amount) || amount <= 0) {
       return NextResponse.json(
         { error: 'Invalid amount. Must be a positive number.' },
@@ -44,61 +44,58 @@ export async function GET(request: Request) {
       );
     }
 
-    // Pre-validate coin symbols
-    const fromUpper = from.toUpperCase();
-    const toUpper = to.toUpperCase();
-
-    if (!isSupportedCoin(fromUpper)) {
+    // Normalize and validate coin symbols against whitelist
+    const fromValidation = validateSymbol(from);
+    if (!fromValidation.valid) {
       return NextResponse.json(
-        {
-          error: `Unsupported cryptocurrency: ${fromUpper}`,
-          supportedCoins: getSupportedCoins(),
-        },
+        { error: fromValidation.error, supportedCoins: getSupportedCoins() },
         { status: 400 }
       );
     }
 
-    if (!isSupportedCoin(toUpper)) {
+    const toValidation = validateSymbol(to);
+    if (!toValidation.valid) {
       return NextResponse.json(
-        {
-          error: `Unsupported cryptocurrency: ${toUpper}`,
-          supportedCoins: getSupportedCoins(),
-        },
+        { error: toValidation.error, supportedCoins: getSupportedCoins() },
         { status: 400 }
       );
     }
 
-    // Same coin check
-    if (fromUpper === toUpper) {
+    const fromSymbol = fromValidation.symbol;
+    const toSymbol = toValidation.symbol;
+
+    // Same coin - return 1:1 rate
+    if (fromSymbol === toSymbol) {
+      const rate = applyMargin(1, MARGIN);
       return NextResponse.json({
-        from,
-        to,
+        from: fromSymbol,
+        to: toSymbol,
         amount,
-        rate: applyMargin(1, MARGIN),
+        rate,
         marketRate: 1,
-        total: applyMargin(1, MARGIN) * amount,
+        total: rate * amount,
         margin: MARGIN * 100,
         validUntil: Date.now() + 60000,
       });
     }
 
-    // Get exchange rate (now uses USDT-only pairs)
-    const rate = await getExchangeRate(fromUpper, toUpper);
+    // Get exchange rate using USDT intermediate
+    const rate = await getExchangeRate(fromSymbol, toSymbol);
     const rateWithMargin = applyMargin(rate, MARGIN);
     const total = rateWithMargin * amount;
 
-    // Final validation before responding
-    if (!Number.isFinite(rate) || !Number.isFinite(total)) {
+    // Validate final calculation
+    if (!Number.isFinite(rate) || !Number.isFinite(total) || isNaN(rate) || isNaN(total)) {
       return NextResponse.json(
-        { error: 'Invalid price calculation' },
-        { status: 500 }
+        { error: 'Price calculation failed. Please try again.' },
+        { status: 503 }
       );
     }
 
     return NextResponse.json(
       {
-        from,
-        to,
+        from: fromSymbol,
+        to: toSymbol,
         amount,
         rate: rateWithMargin,
         marketRate: rate,
@@ -117,10 +114,9 @@ export async function GET(request: Request) {
   } catch (error) {
     console.error('Price API error:', error);
 
-    // Return 500 only for truly unexpected errors
-    // Known errors (unsupported coin, etc.) are handled above
+    // Return 503 for service errors with clear message
     return NextResponse.json(
-      { error: 'Price service temporarily unavailable. Please try again.' },
+      { error: 'Price service temporarily unavailable. Please try again in a moment.' },
       { status: 503 }
     );
   }
