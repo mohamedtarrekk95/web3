@@ -1,5 +1,5 @@
 import { NextResponse } from 'next/server';
-import { getExchangeRate, applyMargin, isSupportedCoin, getSupportedCoins, validateSymbol } from '@/lib/binance';
+import { getExchangeRate, applyMargin, getSupportedCoins, validateSymbol } from '@/lib/binance';
 import { apiRateLimiter } from '@/lib/rateLimit';
 
 const MARGIN = 0.018;
@@ -28,7 +28,7 @@ export async function GET(request: Request) {
     const to = searchParams.get('to');
     const amount = parseFloat(searchParams.get('amount') || '1');
 
-    // Validate required params exist
+    // Validate required params
     if (!from || !to) {
       return NextResponse.json(
         { error: 'Missing "from" or "to" parameter', supportedCoins: getSupportedCoins() },
@@ -36,7 +36,7 @@ export async function GET(request: Request) {
       );
     }
 
-    // Validate amount is a positive number
+    // Validate amount
     if (isNaN(amount) || amount <= 0) {
       return NextResponse.json(
         { error: 'Invalid amount. Must be a positive number.' },
@@ -44,7 +44,7 @@ export async function GET(request: Request) {
       );
     }
 
-    // Normalize and validate coin symbols against whitelist
+    // Normalize and validate coin symbols
     const fromValidation = validateSymbol(from);
     if (!fromValidation.valid) {
       return NextResponse.json(
@@ -64,7 +64,7 @@ export async function GET(request: Request) {
     const fromSymbol = fromValidation.symbol;
     const toSymbol = toValidation.symbol;
 
-    // Same coin - return 1:1 rate
+    // Same coin - return 1:1 rate immediately
     if (fromSymbol === toSymbol) {
       const rate = applyMargin(1, MARGIN);
       return NextResponse.json({
@@ -79,7 +79,7 @@ export async function GET(request: Request) {
       });
     }
 
-    // Get exchange rate using USDT intermediate
+    // Get exchange rate from CoinGecko
     const rate = await getExchangeRate(fromSymbol, toSymbol);
     const rateWithMargin = applyMargin(rate, MARGIN);
     const total = rateWithMargin * amount;
@@ -87,7 +87,12 @@ export async function GET(request: Request) {
     // Validate final calculation
     if (!Number.isFinite(rate) || !Number.isFinite(total) || isNaN(rate) || isNaN(total)) {
       return NextResponse.json(
-        { error: 'Price calculation failed. Please try again.' },
+        {
+          error: 'Price temporarily unavailable. Please try again in a moment.',
+          from: fromSymbol,
+          to: toSymbol,
+          retryAfter: 30,
+        },
         { status: 503 }
       );
     }
@@ -114,9 +119,12 @@ export async function GET(request: Request) {
   } catch (error) {
     console.error('Price API error:', error);
 
-    // Return 503 for service errors with clear message
+    // Return 503 with safe message - NEVER return 500
     return NextResponse.json(
-      { error: 'Price service temporarily unavailable. Please try again in a moment.' },
+      {
+        error: 'Price service temporarily unavailable. Please try again in a moment.',
+        retryAfter: 30,
+      },
       { status: 503 }
     );
   }

@@ -1,14 +1,38 @@
-const BINANCE_API = 'https://api.binance.com/api/v3/ticker/price';
+// CoinGecko API base URL
+const COINGECKO_API = 'https://api.coingecko.com/api/v3';
 
-// Top 15 supported cryptocurrencies with USDT trading pairs on Binance
-const SUPPORTED_COINS = new Set([
-  'BTC', 'ETH', 'USDT', 'BNB', 'SOL', 'XRP', 'ADA', 'DOGE',
-  'AVAX', 'MATIC', 'DOT', 'LTC', 'TRX', 'BCH', 'LINK', 'UNI',
-]);
+// Symbol to CoinGecko ID mapping
+const SYMBOL_TO_ID: Record<string, string> = {
+  BTC: 'bitcoin',
+  ETH: 'ethereum',
+  USDT: 'tether',
+  BNB: 'binancecoin',
+  SOL: 'solana',
+  XRP: 'ripple',
+  ADA: 'cardano',
+  DOGE: 'dogecoin',
+  AVAX: 'avalanche-2',
+  MATIC: 'polygon',
+  DOT: 'polkadot',
+  LTC: 'litecoin',
+  TRX: 'tron',
+  BCH: 'bitcoin-cash',
+  LINK: 'chainlink',
+  UNI: 'uniswap',
+};
+
+// Reverse mapping (CoinGecko ID to symbol)
+const ID_TO_SYMBOL: Record<string, string> = Object.fromEntries(
+  Object.entries(SYMBOL_TO_ID).map(([k, v]) => [v, k])
+);
+
+// Supported coins (our internal symbols)
+const SUPPORTED_COINS = new Set(Object.keys(SYMBOL_TO_ID));
 
 interface PriceResult {
   price: number;
   symbol: string;
+  id: string;
 }
 
 interface PriceCache {
@@ -16,8 +40,14 @@ interface PriceCache {
   timestamp: number;
 }
 
+interface CoinGeckoPriceData {
+  [coinId: string]: {
+    usd: number;
+  };
+}
+
 const priceCache: Map<string, PriceCache> = new Map();
-const CACHE_DURATION = 5000; // 5 seconds
+const CACHE_DURATION = 10000; // 10 seconds
 const MAX_RETRIES = 2;
 
 export function isSupportedCoin(symbol: string): boolean {
@@ -26,6 +56,13 @@ export function isSupportedCoin(symbol: string): boolean {
 
 export function getSupportedCoins(): string[] {
   return Array.from(SUPPORTED_COINS).sort();
+}
+
+/**
+ * Get CoinGecko ID from our internal symbol
+ */
+export function getCoinGeckoId(symbol: string): string | null {
+  return SYMBOL_TO_ID[symbol.toUpperCase()] || null;
 }
 
 /**
@@ -44,72 +81,77 @@ export function validateSymbol(symbol: string): { valid: boolean; symbol: string
 }
 
 /**
- * Fetches price from Binance API with retry logic and cache fallback
+ * Fetches price from CoinGecko API with retry logic and cache fallback
  */
-export async function getBinancePrice(symbol: string): Promise<PriceResult> {
+export async function getCoinGeckoPrice(symbol: string): Promise<PriceResult> {
   const cacheKey = symbol.toUpperCase();
   const cached = priceCache.get(cacheKey);
 
   // Return cached price if still valid
   if (cached && Date.now() - cached.timestamp < CACHE_DURATION) {
-    return { price: cached.price, symbol: cacheKey };
+    return { price: cached.price, symbol: cacheKey, id: SYMBOL_TO_ID[cacheKey] };
+  }
+
+  const coinId = SYMBOL_TO_ID[cacheKey];
+  if (!coinId) {
+    throw new Error(`Unknown symbol: ${cacheKey}`);
   }
 
   let lastError: Error | null = null;
 
   for (let attempt = 0; attempt <= MAX_RETRIES; attempt++) {
     try {
-      const response = await fetch(`${BINANCE_API}?symbol=${cacheKey}`, {
-        signal: AbortSignal.timeout(5000),
+      const url = `${COINGECKO_API}/simple/price?ids=${coinId}&vs_currencies=usd`;
+      const response = await fetch(url, {
+        signal: AbortSignal.timeout(8000),
       });
 
       if (!response.ok) {
-        // Try to use stale cache on HTTP error
         if (cached) {
-          return { price: cached.price, symbol: cacheKey };
+          return { price: cached.price, symbol: cacheKey, id: coinId };
         }
-        throw new Error(`Binance API error: ${response.status}`);
+        throw new Error(`CoinGecko API error: ${response.status}`);
       }
 
-      const data = await response.json();
+      const data: CoinGeckoPriceData = await response.json();
 
       // Validate response structure
-      if (!data || typeof data.price === 'undefined' || data.price === null) {
-        throw new Error('Invalid API response structure');
+      if (!data || !data[coinId] || typeof data[coinId].usd === 'undefined') {
+        throw new Error(`Invalid response for ${coinId}`);
       }
 
-      const price = parseFloat(data.price);
+      const price = data[coinId].usd;
 
       // Validate parsed price
       if (!Number.isFinite(price) || price <= 0 || isNaN(price)) {
-        throw new Error(`Invalid price value for ${cacheKey}`);
+        throw new Error(`Invalid price value for ${coinId}: ${price}`);
       }
 
       // Cache valid price
       priceCache.set(cacheKey, { price, timestamp: Date.now() });
-      return { price, symbol: cacheKey };
+      return { price, symbol: cacheKey, id: coinId };
 
     } catch (error) {
       lastError = error instanceof Error ? error : new Error(String(error));
 
-      // If we have a cached value, return it on any attempt after the first
+      // Use stale cache on retry attempts
       if (cached && attempt > 0) {
-        return { price: cached.price, symbol: cacheKey };
+        return { price: cached.price, symbol: cacheKey, id: coinId };
       }
     }
   }
 
-  // If all retries failed but we have stale cache, return it
+  // Last resort: return stale cache if available
   if (cached) {
-    return { price: cached.price, symbol: cacheKey };
+    return { price: cached.price, symbol: cacheKey, id: coinId };
   }
 
   throw lastError || new Error(`Failed to fetch price for ${cacheKey}`);
 }
 
 /**
- * Calculates exchange rate using ONLY USDT as intermediate currency.
- * Rate = (FROM/USDT) / (TO/USDT)
+ * Calculates exchange rate using CoinGecko USD prices.
+ * Rate = fromPrice / toPrice (both in USD)
  */
 export async function getExchangeRate(from: string, to: string): Promise<number> {
   const fromSymbol = from.toUpperCase();
@@ -120,7 +162,7 @@ export async function getExchangeRate(from: string, to: string): Promise<number>
     return 1;
   }
 
-  // Validate both coins
+  // Validate both coins upfront
   const fromValidation = validateSymbol(fromSymbol);
   if (!fromValidation.valid) {
     throw new Error(fromValidation.error);
@@ -132,24 +174,24 @@ export async function getExchangeRate(from: string, to: string): Promise<number>
   }
 
   try {
-    // Fetch both USDT prices in parallel
+    // Fetch both prices in parallel from CoinGecko
     const [fromResult, toResult] = await Promise.all([
-      getBinancePrice(`${fromSymbol}USDT`),
-      getBinancePrice(`${toSymbol}USDT`),
+      getCoinGeckoPrice(fromSymbol),
+      getCoinGeckoPrice(toSymbol),
     ]);
 
-    const { price: fromUSDT } = fromResult;
-    const { price: toUSDT } = toResult;
+    const { price: fromPrice } = fromResult;
+    const { price: toPrice } = toResult;
 
     // Validate prices before division
-    if (!Number.isFinite(fromUSDT) || fromUSDT <= 0 || isNaN(fromUSDT)) {
-      throw new Error(`Invalid USDT price for ${fromSymbol}`);
+    if (!Number.isFinite(fromPrice) || fromPrice <= 0 || isNaN(fromPrice)) {
+      throw new Error(`Invalid USD price for ${fromSymbol}`);
     }
-    if (!Number.isFinite(toUSDT) || toUSDT <= 0 || isNaN(toUSDT)) {
-      throw new Error(`Invalid USDT price for ${toSymbol}`);
+    if (!Number.isFinite(toPrice) || toPrice <= 0 || isNaN(toPrice)) {
+      throw new Error(`Invalid USD price for ${toSymbol}`);
     }
 
-    const rate = fromUSDT / toUSDT;
+    const rate = fromPrice / toPrice;
 
     // Final validation of calculated rate
     if (!Number.isFinite(rate) || isNaN(rate) || rate <= 0 || rate > 1e10) {
@@ -163,7 +205,7 @@ export async function getExchangeRate(from: string, to: string): Promise<number>
       if (error.message.includes('Unsupported')) {
         throw error;
       }
-      if (error.message.includes('Invalid')) {
+      if (error.message.includes('Invalid') || error.message.includes('Failed')) {
         throw error;
       }
     }
@@ -179,4 +221,16 @@ export function applyMargin(price: number, margin: number = 0.018): number {
     return 0;
   }
   return price * (1 - margin);
+}
+
+/**
+ * Get current cache status (for debugging)
+ */
+export function getCacheStatus(): { size: number; entries: string[] } {
+  const entries: string[] = [];
+  for (const [symbol, data] of priceCache.entries()) {
+    const age = Date.now() - data.timestamp;
+    entries.push(`${symbol}: ${data.price.toFixed(2)} (${Math.round(age / 1000)}s ago)`);
+  }
+  return { size: priceCache.size, entries };
 }
