@@ -1,20 +1,16 @@
 import { NextResponse } from 'next/server';
-import { getExchangeRate, applyMargin, getSupportedCoins, validateSymbol, isSupportedCoin } from '@/lib/binance';
+import { getExchangeRate, applyMargin, getSupportedCoins, isSupportedCoin } from '@/lib/pricing';
 import { apiRateLimiter } from '@/lib/rateLimit';
 
 const MARGIN = 0.018;
 
 export async function GET(request: Request) {
-  // Rate limiting
   const ip = request.headers.get('x-forwarded-for') || 'unknown';
-  const rateLimitResult = apiRateLimiter(ip);
+  const rateLimit = apiRateLimiter(ip);
 
-  if (!rateLimitResult.success) {
+  if (!rateLimit.success) {
     return NextResponse.json(
-      {
-        error: 'Too many requests. Please try again later.',
-        supportedCoins: getSupportedCoins(),
-      },
+      { error: 'Too many requests', supportedCoins: getSupportedCoins() },
       { status: 429 }
     );
   }
@@ -25,53 +21,38 @@ export async function GET(request: Request) {
     const to = searchParams.get('to');
     const amount = parseFloat(searchParams.get('amount') || '1');
 
-    // Missing params - return 200 with error message
     if (!from || !to) {
       return NextResponse.json(
-        {
-          error: 'Missing "from" or "to" parameter',
-          supportedCoins: getSupportedCoins(),
-        },
+        { error: 'Missing "from" or "to" parameter', supportedCoins: getSupportedCoins() },
         { status: 400 }
       );
     }
 
-    // Invalid amount
     if (isNaN(amount) || amount <= 0) {
       return NextResponse.json(
-        {
-          error: 'Invalid amount. Must be a positive number.',
-        },
+        { error: 'Invalid amount' },
         { status: 400 }
       );
     }
 
-    // Normalize symbols
     const fromSymbol = from.toUpperCase().trim();
     const toSymbol = to.toUpperCase().trim();
 
-    // Unsupported coins - return 200 with clear error
     if (!isSupportedCoin(fromSymbol)) {
       return NextResponse.json(
-        {
-          error: `Unsupported cryptocurrency: ${fromSymbol}`,
-          supportedCoins: getSupportedCoins(),
-        },
+        { error: `Unsupported: ${fromSymbol}`, supportedCoins: getSupportedCoins() },
         { status: 400 }
       );
     }
 
     if (!isSupportedCoin(toSymbol)) {
       return NextResponse.json(
-        {
-          error: `Unsupported cryptocurrency: ${toSymbol}`,
-          supportedCoins: getSupportedCoins(),
-        },
+        { error: `Unsupported: ${toSymbol}`, supportedCoins: getSupportedCoins() },
         { status: 400 }
       );
     }
 
-    // Same coin - instant 1:1
+    // Same coin
     if (fromSymbol === toSymbol) {
       const rate = applyMargin(1, MARGIN);
       return NextResponse.json({
@@ -87,11 +68,9 @@ export async function GET(request: Request) {
       });
     }
 
-    // Get exchange rate (always returns - never throws)
     const result = await getExchangeRate(fromSymbol, toSymbol);
     const { rate, fallback, message } = result;
 
-    // If rate is 0 or invalid, return error but with 200 status
     if (rate <= 0 || !Number.isFinite(rate)) {
       return NextResponse.json({
         from: fromSymbol,
@@ -102,7 +81,7 @@ export async function GET(request: Request) {
         total: 0,
         margin: MARGIN * 100,
         validUntil: Date.now() + 60000,
-        error: message || 'Price temporarily unavailable',
+        error: message,
         fallback: true,
         supportedCoins: getSupportedCoins(),
       });
@@ -121,20 +100,13 @@ export async function GET(request: Request) {
       margin: MARGIN * 100,
       validUntil: Date.now() + 60000,
       fallback,
-      message: fallback ? message : 'Live rate',
+      message,
     });
 
   } catch (error) {
-    console.error('Price API unexpected error:', error);
-
-    // NEVER return 500 - always 200 with fallback
+    console.error('Price API error:', error);
     return NextResponse.json(
-      {
-        error: 'Price temporarily unavailable',
-        fallback: true,
-        message: 'Using last known price',
-        supportedCoins: getSupportedCoins(),
-      },
+      { error: 'Price service error', fallback: true, supportedCoins: getSupportedCoins() },
       { status: 200 }
     );
   }
