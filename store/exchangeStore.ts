@@ -12,6 +12,7 @@ interface PriceCache {
   total: number;
   timestamp: number;
   fallback: boolean;
+  source: 'api' | 'preload';
 }
 
 interface ExchangeState {
@@ -35,8 +36,9 @@ interface ExchangeState {
   setPrice: (price: number, marketRate: number, total: number, validUntil: number, fallback: boolean, message?: string) => void;
   setLoading: (loading: boolean) => void;
   setIsUpdating: (updating: boolean) => void;
-  setPriceCache: (symbol: string, data: PriceCache) => void;
-  getCachedPrice: (symbol: string) => PriceCache | null;
+  setPriceCache: (key: string, data: PriceCache) => void;
+  getPriceCache: (key: string) => PriceCache | null;
+  getCoinPrice: (symbol: string) => number | null;
   swapCoins: () => void;
   reset: () => void;
 }
@@ -63,13 +65,21 @@ export const useExchangeStore = create<ExchangeState>((set, get) => ({
     set({ price, marketRate, total, priceValidUntil, fallback, priceMessage: message }),
   setLoading: (loading) => set({ loading }),
   setIsUpdating: (isUpdating) => set({ isUpdating }),
-  setPriceCache: (symbol, data) =>
+  setPriceCache: (key, data) =>
     set((state) => ({
-      priceCache: { ...state.priceCache, [symbol]: data },
+      priceCache: { ...state.priceCache, [key]: data },
     })),
-  getCachedPrice: (symbol) => {
+  getPriceCache: (key) => {
     const cache = get().priceCache;
-    return cache[symbol] || null;
+    return cache[key] || null;
+  },
+  getCoinPrice: (symbol) => {
+    const cache = get().priceCache;
+    // Try exact symbol match first
+    if (cache[symbol] && Date.now() - cache[symbol].timestamp < 20000) {
+      return cache[symbol].price;
+    }
+    return null;
   },
   swapCoins: () =>
     set((state) => ({
@@ -93,44 +103,46 @@ export const useExchangeStore = create<ExchangeState>((set, get) => ({
 }));
 
 /**
- * Preload prices for popular coins on app start
+ * Preload prices for popular coins
+ * Stores individual coin prices so pair lookups can combine them
  */
 export async function preloadPrices() {
-  const POPULAR_COINS = ['BTC', 'ETH', 'USDT', 'BNB', 'SOL'];
+  const POPULAR_PAIRS = [
+    { from: 'BTC', to: 'USDT' },
+    { from: 'ETH', to: 'USDT' },
+    { from: 'BNB', to: 'USDT' },
+    { from: 'SOL', to: 'USDT' },
+    { from: 'ADA', to: 'USDT' },
+    { from: 'BTC', to: 'ETH' },
+  ];
+
   const store = useExchangeStore.getState();
 
   try {
-    const results = await Promise.all(
-      POPULAR_COINS.map(async (coin) => {
+    await Promise.all(
+      POPULAR_PAIRS.map(async ({ from, to }) => {
         try {
-          const res = await fetch(`/api/price?from=${coin}&to=USDT&amount=1`);
+          const res = await fetch(`/api/price?from=${from}&to=${to}&amount=1`);
           if (res.ok) {
             const data = await res.json();
             if (data.rate > 0) {
-              store.setPriceCache(coin, {
+              const key = `${from}-${to}`;
+              store.setPriceCache(key, {
                 price: data.rate,
                 marketRate: data.marketRate,
                 total: data.total,
                 timestamp: Date.now(),
                 fallback: data.fallback || false,
+                source: 'preload',
               });
-              return { coin, success: true } as const;
             }
           }
-          return { coin, success: false } as const;
         } catch {
-          return { coin, success: false } as const;
+          // Silent fail for preloads
         }
       })
     );
-    const successfulCoins: string[] = [];
-    for (const r of results) {
-      if (r.success && r.coin) {
-        successfulCoins.push(r.coin);
-      }
-    }
-    console.log('Preloaded prices:', successfulCoins.join(', '));
   } catch (error) {
-    console.warn('Failed to preload prices:', error);
+    console.warn('Preload failed:', error);
   }
 }

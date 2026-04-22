@@ -1,13 +1,16 @@
 'use client';
 
-import { useEffect, useState, useCallback, useRef } from 'react';
+import { useEffect, useCallback, useRef, memo, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { useExchangeStore, preloadPrices } from '@/store/exchangeStore';
 import CoinSelector from './CoinSelector';
 
-const POLLING_INTERVAL = 12000; // 12 seconds
+const POLLING_INTERVAL = 15000; // 15 seconds
 
-export default function ExchangeWidget() {
+// Cache freshness window (20 seconds)
+const CACHE_FRESH_MS = 20000;
+
+function ExchangeWidgetComponent() {
   const router = useRouter();
   const {
     coins,
@@ -19,10 +22,8 @@ export default function ExchangeWidget() {
     marketRate,
     loading,
     isUpdating,
-    priceValidUntil,
     fallback,
     priceMessage,
-    priceCache,
     setCoins,
     setFromCoin,
     setToCoin,
@@ -30,159 +31,142 @@ export default function ExchangeWidget() {
     setPrice,
     setLoading,
     setIsUpdating,
-    getCachedPrice,
+    getPriceCache,
+    getCoinPrice,
     swapCoins,
   } = useExchangeStore();
 
   const [timeLeft, setTimeLeft] = useState(60);
   const [isSwapping, setIsSwapping] = useState(false);
-  const [showShimmer, setShowShimmer] = useState(false);
-  const initialLoadRef = useRef(false);
   const pollingRef = useRef<NodeJS.Timeout | null>(null);
+  const mountedRef = useRef(true);
+  const lastFetchRef = useRef<string>('');
 
-  // Fetch price with instant cache display
-  const fetchPrice = useCallback(async (isBackground = false) => {
-    if (!fromCoin || !toCoin || !amount || parseFloat(amount) <= 0) {
-      if (!isBackground) {
-        setLoading(false);
-      }
-      return;
+  // Check if cache exists and is fresh
+  const hasFreshCache = useCallback((from: string, to: string): boolean => {
+    const cacheKey = `${from}-${to}`;
+    const cached = getPriceCache(cacheKey);
+    return cached !== null && Date.now() - cached.timestamp < CACHE_FRESH_MS;
+  }, [getPriceCache]);
+
+  // Fetch price from API (never blocks UI)
+  const fetchPrice = useCallback(async (forceRefresh = false) => {
+    if (!fromCoin || !toCoin || !amount || parseFloat(amount) <= 0) return;
+
+    const cacheKey = `${fromCoin.symbol}-${toCoin.symbol}`;
+    if (!forceRefresh && hasFreshCache(fromCoin.symbol, toCoin.symbol)) {
+      return; // Use cached value
     }
 
-    // Same coin - instant 1:1 rate
-    if (fromCoin.symbol === toCoin.symbol) {
-      setPrice(1, 1, parseFloat(amount), Date.now() + 60000, false, 'Same coin');
-      setLoading(false);
-      return;
-    }
-
-    // Show shimmer on initial load only
-    if (!isBackground && !initialLoadRef.current) {
-      setShowShimmer(true);
-    }
-
-    if (!isBackground) {
-      setLoading(true);
-    } else {
-      setIsUpdating(true);
-    }
+    // Avoid duplicate requests
+    if (lastFetchRef.current === cacheKey && !forceRefresh) return;
+    lastFetchRef.current = cacheKey;
 
     try {
-      const response = await fetch(
-        `/api/price?from=${fromCoin.symbol}&to=${toCoin.symbol}&amount=${amount}`
-      );
-      const data = await response.json();
+      const res = await fetch(`/api/price?from=${fromCoin.symbol}&to=${toCoin.symbol}&amount=${amount}`);
+      if (!res.ok) return;
 
-      if (response.ok && data.rate > 0) {
+      const data = await res.json();
+      if (!mountedRef.current) return;
+
+      if (data.rate > 0) {
         setPrice(data.rate, data.marketRate, data.total, data.validUntil, data.fallback, data.message);
         setTimeLeft(60);
-        setShowShimmer(false);
-        initialLoadRef.current = true;
-
-        // Update cache for future instant display
-        useExchangeStore.getState().setPriceCache(`${fromCoin.symbol}-${toCoin.symbol}`, {
-          price: data.rate,
-          marketRate: data.marketRate,
-          total: data.total,
-          timestamp: Date.now(),
-          fallback: data.fallback || false,
-        });
-      } else if (data.rate === 0 && data.fallback) {
-        // API failed but returning cached/fallback value
-        setPrice(data.rate || 0, data.marketRate || 0, data.total || 0, Date.now() + 60000, true, data.message || 'Using last known price');
-        setShowShimmer(false);
       }
-    } catch (err) {
-      console.warn('Price fetch error:', err);
-    } finally {
-      setLoading(false);
-      setIsUpdating(false);
-      setShowShimmer(false);
+    } catch (error) {
+      console.warn('Price fetch error:', error);
     }
-  }, [fromCoin, toCoin, amount, setLoading, setIsUpdating, setPrice]);
+  }, [fromCoin, toCoin, amount, setPrice, getPriceCache, hasFreshCache]);
 
-  // Initial setup - load coins and preload prices
+  // Initial setup - runs once
   useEffect(() => {
+    mountedRef.current = true;
+
     async function init() {
       try {
         const res = await fetch('/api/coins');
         const data = await res.json();
+        if (!mountedRef.current) return;
+
         setCoins(data);
         if (data.length >= 2) {
           setFromCoin(data[0]);
           setToCoin(data[1]);
         }
       } catch (error) {
-        console.error('Failed to load coins:', error);
+        console.error('Init error:', error);
       }
     }
-    init();
 
-    // Preload popular prices in background
-    preloadPrices();
+    init();
+    preloadPrices(); // Fire and forget
+
+    return () => {
+      mountedRef.current = false;
+    };
   }, [setCoins, setFromCoin, setToCoin]);
 
-  // Fetch price when coins change (instant if cache exists)
+  // When coins change - show cached price instantly, then fetch
   useEffect(() => {
-    if (fromCoin && toCoin) {
-      // Show cached price immediately if available
-      const cacheKey = `${fromCoin.symbol}-${toCoin.symbol}`;
-      const cached = getCachedPrice(cacheKey);
+    if (!fromCoin || !toCoin) return;
 
-      if (cached && Date.now() - cached.timestamp < 20000) {
-        // Use cached price instantly
-        setPrice(cached.price, cached.marketRate, cached.total, Date.now() + 60000, cached.fallback, cached.fallback ? 'Using last known price' : 'Cached');
-        setShowShimmer(false);
+    const cacheKey = `${fromCoin.symbol}-${toCoin.symbol}`;
+    const cached = getPriceCache(cacheKey);
+
+    if (cached) {
+      // Show cached price INSTANTLY
+      setPrice(cached.price, cached.marketRate, cached.total, Date.now() + 60000, cached.fallback, 'Cached');
+      setLoading(false);
+
+      // If cache is stale, fetch fresh in background
+      if (Date.now() - cached.timestamp > 10000) {
+        fetchPrice(true);
       }
-
-      // Then fetch fresh price in background
+    } else {
+      // No cache - show loading state
+      setLoading(true);
       fetchPrice(true);
     }
-  }, [fromCoin, toCoin, fetchPrice, getCachedPrice, setPrice]);
+  }, [fromCoin?.symbol, toCoin?.symbol]); // Only re-run when symbols change
 
   // Countdown timer
   useEffect(() => {
     const interval = setInterval(() => {
-      if (priceValidUntil) {
-        const remaining = Math.max(0, Math.floor((priceValidUntil - Date.now()) / 1000));
-        setTimeLeft(remaining);
-        if (remaining === 0) {
-          fetchPrice(true);
-        }
-      }
+      setTimeLeft((prev) => {
+        if (prev <= 1) return 60;
+        return prev - 1;
+      });
     }, 1000);
-
     return () => clearInterval(interval);
-  }, [priceValidUntil, fetchPrice]);
+  }, []);
 
-  // Polling interval (every 12 seconds)
+  // Polling - refresh every 15 seconds
   useEffect(() => {
-    if (fromCoin && toCoin) {
-      pollingRef.current = setInterval(() => {
-        fetchPrice(true);
-      }, POLLING_INTERVAL);
+    if (!fromCoin || !toCoin) return;
 
-      return () => {
-        if (pollingRef.current) {
-          clearInterval(pollingRef.current);
-        }
-      };
-    }
-  }, [fromCoin, toCoin, fetchPrice]);
+    pollingRef.current = setInterval(() => {
+      fetchPrice(true);
+    }, POLLING_INTERVAL);
 
-  const handleSwap = async () => {
+    return () => {
+      if (pollingRef.current) clearInterval(pollingRef.current);
+    };
+  }, [fromCoin?.symbol, toCoin?.symbol, fetchPrice]);
+
+  // Swap handler
+  const handleSwap = useCallback(() => {
     if (isSwapping) return;
     setIsSwapping(true);
     swapCoins();
-    await new Promise((resolve) => setTimeout(resolve, 300));
-    setIsSwapping(false);
-  };
+    setTimeout(() => setIsSwapping(false), 300);
+  }, [isSwapping, swapCoins]);
 
-  const handleExchange = async () => {
+  // Exchange handler
+  const handleExchange = useCallback(async () => {
     if (!fromCoin || !toCoin || !amount || parseFloat(amount) <= 0 || total <= 0) return;
 
     try {
-      const response = await fetch('/api/orders', {
+      const res = await fetch('/api/orders', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -193,23 +177,26 @@ export default function ExchangeWidget() {
         }),
       });
 
-      const order = await response.json();
-      if (response.ok) {
+      const order = await res.json();
+      if (res.ok) {
         router.push(`/invoice/${order.orderId}`);
       }
-    } catch (err) {
-      console.error('Failed to create order:', err);
+    } catch (error) {
+      console.error('Order error:', error);
     }
-  };
+  }, [fromCoin, toCoin, amount, total, router]);
 
-  const formatNumber = (num: number, decimals: number = 8) => {
+  // Number formatting
+  const formatNumber = useCallback((num: number, decimals = 8): string => {
     if (!Number.isFinite(num) || num === 0) return '—';
     if (num < 0.00001) return num.toExponential(4);
     return num.toFixed(decimals).replace(/\.?0+$/, '');
-  };
+  }, []);
 
-  const displayTotal = () => {
-    if (loading || showShimmer) {
+  // What to show in the price display
+  const getDisplayContent = () => {
+    // Loading spinner
+    if (loading) {
       return (
         <div className="flex items-center gap-2">
           <div className="w-5 h-5 border-2 border-cyan-500 border-t-transparent rounded-full animate-spin" />
@@ -217,39 +204,59 @@ export default function ExchangeWidget() {
         </div>
       );
     }
-    if (total <= 0 || !Number.isFinite(total)) {
+
+    // No valid price yet
+    if (!Number.isFinite(total) || total <= 0) {
       return <span className="text-gray-500">Enter amount</span>;
     }
-    return formatNumber(total);
+
+    // Valid price
+    return <span className="tabular-nums">{formatNumber(total)}</span>;
+  };
+
+  // Status indicator
+  const getStatusIndicator = () => {
+    if (loading) {
+      return <span className="text-gray-400">Loading...</span>;
+    }
+    if (fallback) {
+      return (
+        <>
+          <div className="w-2 h-2 rounded-full bg-yellow-500 animate-pulse" />
+          <span className="text-yellow-500">{priceMessage || 'Cached'}</span>
+        </>
+      );
+    }
+    if (isUpdating) {
+      return (
+        <>
+          <div className="w-2 h-2 rounded-full bg-cyan-500 animate-pulse" />
+          <span className="text-cyan-500">Updating...</span>
+        </>
+      );
+    }
+    return (
+      <>
+        <div className="w-2 h-2 rounded-full bg-green-500" />
+        <span className="text-green-500">Live</span>
+      </>
+    );
   };
 
   return (
     <div className="w-full max-w-lg mx-auto">
       <div className="bg-gray-900/80 backdrop-blur-xl border border-gray-800 rounded-3xl p-6 shadow-2xl">
         <div className="space-y-6">
+          {/* Header */}
           <div className="flex items-center justify-between mb-4">
             <h2 className="text-xl font-semibold text-white">Exchange</h2>
             <div className="flex items-center gap-2 text-sm">
-              {fallback ? (
-                <>
-                  <div className="w-2 h-2 rounded-full bg-yellow-500 animate-pulse" />
-                  <span className="text-yellow-500">{priceMessage || 'Cached'}</span>
-                </>
-              ) : isUpdating ? (
-                <>
-                  <div className="w-2 h-2 rounded-full bg-cyan-500 animate-pulse" />
-                  <span className="text-cyan-500">Updating...</span>
-                </>
-              ) : (
-                <>
-                  <div className="w-2 h-2 rounded-full bg-green-500" />
-                  <span className="text-green-500">Live</span>
-                </>
-              )}
+              {getStatusIndicator()}
             </div>
           </div>
 
-          <div className="relative">
+          {/* From Section */}
+          <div>
             <CoinSelector
               coins={coins}
               selectedCoin={fromCoin}
@@ -261,10 +268,11 @@ export default function ExchangeWidget() {
               value={amount}
               onChange={(e) => setAmount(e.target.value)}
               placeholder="0.0"
-              className="w-full mt-2 px-4 py-4 text-2xl font-semibold bg-gray-800/50 border border-gray-700 rounded-xl text-white placeholder-gray-600 focus:outline-none focus:border-cyan-500 transition-colors"
+              className="w-full mt-2 px-4 py-4 text-2xl font-semibold bg-gray-800/50 border border-gray-700 rounded-xl text-white placeholder-gray-600 focus:outline-none focus:border-cyan-500 transition-colors tabular-nums"
             />
           </div>
 
+          {/* Swap Button */}
           <div className="relative flex justify-center">
             <button
               onClick={handleSwap}
@@ -282,6 +290,7 @@ export default function ExchangeWidget() {
             </button>
           </div>
 
+          {/* To Section */}
           <div>
             <CoinSelector
               coins={coins}
@@ -290,21 +299,22 @@ export default function ExchangeWidget() {
               label="You Get"
             />
             <div className="mt-2 px-4 py-4 text-2xl font-semibold bg-gray-800/30 border border-gray-700/50 rounded-xl text-cyan-400 min-h-[60px] flex items-center">
-              {displayTotal()}
+              {getDisplayContent()}
             </div>
           </div>
 
+          {/* Price Info */}
           {price > 0 && Number.isFinite(price) && (
             <div className="space-y-2 p-4 bg-gray-800/30 rounded-xl border border-gray-700/50">
               <div className="flex justify-between text-sm">
                 <span className="text-gray-400">Rate</span>
-                <span className="text-gray-300">
+                <span className="text-gray-300 tabular-nums">
                   1 {fromCoin?.symbol} = {formatNumber(price)} {toCoin?.symbol}
                 </span>
               </div>
               <div className="flex justify-between text-sm">
                 <span className="text-gray-400">Market Rate</span>
-                <span className="text-gray-400">
+                <span className="text-gray-400 tabular-nums">
                   1 {fromCoin?.symbol} = {formatNumber(marketRate)} {toCoin?.symbol}
                 </span>
               </div>
@@ -321,20 +331,24 @@ export default function ExchangeWidget() {
             </div>
           )}
 
+          {/* Footer */}
           <div className="flex items-center justify-between text-sm text-gray-400 mb-2">
             <span>All fees included</span>
             <span className="text-xs">Updates every {POLLING_INTERVAL / 1000}s</span>
           </div>
 
+          {/* Exchange Button */}
           <button
             onClick={handleExchange}
             disabled={!fromCoin || !toCoin || !amount || parseFloat(amount) <= 0 || total <= 0 || loading}
             className="w-full py-4 bg-gradient-to-r from-cyan-500 to-blue-500 hover:from-cyan-400 hover:to-blue-400 disabled:from-gray-700 disabled:to-gray-700 text-white font-semibold rounded-xl transition-all duration-200 disabled:cursor-not-allowed"
           >
-            {!fromCoin || !toCoin || !amount || parseFloat(amount) <= 0 ? (
+            {!fromCoin || !toCoin ? (
               'Select coins to exchange'
+            ) : !amount || parseFloat(amount) <= 0 ? (
+              'Enter amount'
             ) : total <= 0 ? (
-              'Enter valid amount'
+              'Loading...'
             ) : (
               'Exchange Now'
             )}
@@ -344,3 +358,6 @@ export default function ExchangeWidget() {
     </div>
   );
 }
+
+// Memoize to prevent unnecessary re-renders
+export default memo(ExchangeWidgetComponent);
