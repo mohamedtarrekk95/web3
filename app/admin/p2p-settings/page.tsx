@@ -27,6 +27,9 @@ export default function AdminP2PSettings() {
   const [message, setMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
   const [editingCurrency, setEditingCurrency] = useState<string | null>(null);
   const [editingPaymentMethod, setEditingPaymentMethod] = useState<{ currencyId: string; methodId: string } | null>(null);
+  const [editingAdminNote, setEditingAdminNote] = useState(false);
+  const [adminNoteValue, setAdminNoteValue] = useState('');
+  const [adminNoteOriginal, setAdminNoteOriginal] = useState('');
 
   useEffect(() => {
     if (isAuthenticated) {
@@ -47,6 +50,7 @@ export default function AdminP2PSettings() {
             setCurrencies([]);
           }
         }
+        setAdminNoteValue(data.adminNote || '');
       }
     } catch (err) {
       console.error('Failed to fetch settings:', err);
@@ -169,6 +173,21 @@ export default function AdminP2PSettings() {
     );
     await saveCurrencies(updatedCurrencies);
     setEditingPaymentMethod(null);
+  };
+
+  const handleEditAdminNote = () => {
+    setAdminNoteOriginal(adminNoteValue);
+    setEditingAdminNote(true);
+  };
+
+  const handleCancelAdminNote = () => {
+    setAdminNoteValue(adminNoteOriginal);
+    setEditingAdminNote(false);
+  };
+
+  const handleSaveAdminNote = async () => {
+    await saveSetting('adminNote', adminNoteValue);
+    setEditingAdminNote(false);
   };
 
   if (loading || pageLoading) {
@@ -489,6 +508,58 @@ export default function AdminP2PSettings() {
                     </div>
                   </div>
                 ))}
+              </div>
+            )}
+          </div>
+
+          {/* Admin Note Section */}
+          <div className="bg-gray-900/80 backdrop-blur-xl border border-gray-800 rounded-2xl p-6">
+            <div className="flex items-center justify-between mb-4">
+              <div>
+                <h2 className="text-lg font-semibold text-white">Admin Note</h2>
+                <p className="text-sm text-gray-400 mt-1">Global note displayed on all P2P orders</p>
+              </div>
+              {!editingAdminNote && (
+                <button
+                  onClick={handleEditAdminNote}
+                  className="px-3 py-1 bg-cyan-500 hover:bg-cyan-400 text-white text-sm rounded-lg transition-colors"
+                >
+                  Edit
+                </button>
+              )}
+            </div>
+            {editingAdminNote ? (
+              <div className="space-y-3">
+                <textarea
+                  value={adminNoteValue}
+                  onChange={(e) => setAdminNoteValue(e.target.value)}
+                  placeholder="Enter a global admin note for all P2P orders..."
+                  rows={3}
+                  className="w-full px-4 py-3 bg-gray-800/50 border border-gray-700 rounded-xl text-white placeholder-gray-500 focus:outline-none focus:border-cyan-500 transition-colors resize-none text-sm"
+                />
+                <div className="flex gap-2">
+                  <button
+                    onClick={handleSaveAdminNote}
+                    disabled={saving}
+                    className="px-4 py-2 bg-green-500 hover:bg-green-400 text-white text-sm rounded-lg transition-colors disabled:opacity-50"
+                  >
+                    {saving ? 'Saving...' : 'Save'}
+                  </button>
+                  <button
+                    onClick={handleCancelAdminNote}
+                    className="px-4 py-2 bg-gray-600 hover:bg-gray-500 text-white text-sm rounded-lg transition-colors"
+                  >
+                    Cancel
+                  </button>
+                </div>
+              </div>
+            ) : (
+              <div className="bg-gray-800/50 p-4 rounded-xl">
+                {adminNoteValue ? (
+                  <p className="text-white whitespace-pre-wrap">{adminNoteValue}</p>
+                ) : (
+                  <p className="text-gray-500 italic">No admin note set</p>
+                )}
               </div>
             )}
           </div>
