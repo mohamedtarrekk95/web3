@@ -4,40 +4,42 @@ import { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { useAuth } from '@/lib/useAuth';
 
+interface PaymentMethod {
+  id: string;
+  name: string;
+  instructions: string;
+}
+
+interface Currency {
+  id: string;
+  name: string;
+  code: string;
+  buyPrice: string;
+  sellPrice: string;
+  paymentMethods: PaymentMethod[];
+}
+
 interface Settings {
   p2pBuyPrice?: string;
   p2pSellPrice?: string;
   p2pPaymentInstructions?: string;
   p2pEnabled?: string;
+  p2pCurrencies?: string;
 }
-
-const CURRENCIES = [
-  { code: 'EGP', name: 'Egyptian Pound' },
-  { code: 'USD', name: 'US Dollar' },
-  { code: 'SAR', name: 'Saudi Riyal' },
-  { code: 'AED', name: 'UAE Dirham' },
-];
-
-const PAYMENT_METHODS = [
-  { code: 'vodafone_cash', name: 'Vodafone Cash' },
-  { code: 'fawry', name: 'Fawry' },
-  { code: 'bank_transfer', name: 'Bank Transfer' },
-  { code: 'instapay', name: 'Instapay' },
-  { code: 'cash', name: 'Cash' },
-];
 
 export default function P2PPage() {
   const router = useRouter();
   const { isAuthenticated, loading: authLoading } = useAuth();
   const [settings, setSettings] = useState<Settings>({});
+  const [currencies, setCurrencies] = useState<Currency[]>([]);
   const [pageLoading, setPageLoading] = useState(true);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   const [mode, setMode] = useState<'buy' | 'sell'>('buy');
   const [amount, setAmount] = useState('');
-  const [currency, setCurrency] = useState('EGP');
-  const [paymentMethod, setPaymentMethod] = useState('');
+  const [selectedCurrency, setSelectedCurrency] = useState<Currency | null>(null);
+  const [selectedPaymentMethod, setSelectedPaymentMethod] = useState('');
   const [walletAddress, setWalletAddress] = useState('');
   const [telegramUsername, setTelegramUsername] = useState('');
 
@@ -55,6 +57,17 @@ export default function P2PPage() {
       if (res.ok) {
         const data = await res.json();
         setSettings(data);
+        if (data.p2pCurrencies) {
+          try {
+            const parsed = JSON.parse(data.p2pCurrencies);
+            setCurrencies(parsed);
+            if (parsed.length > 0) {
+              setSelectedCurrency(parsed[0]);
+            }
+          } catch {
+            setCurrencies([]);
+          }
+        }
       }
     } catch (err) {
       console.error('Failed to fetch settings:', err);
@@ -65,18 +78,18 @@ export default function P2PPage() {
 
   const calculateUSDT = () => {
     const numAmount = parseFloat(amount);
-    if (isNaN(numAmount) || numAmount <= 0) return '0';
+    if (isNaN(numAmount) || numAmount <= 0 || !selectedCurrency) return '0';
 
     const price = mode === 'buy'
-      ? parseFloat(settings.p2pBuyPrice || '0')
-      : parseFloat(settings.p2pSellPrice || '0');
+      ? parseFloat(selectedCurrency.buyPrice || '0')
+      : parseFloat(selectedCurrency.sellPrice || '0');
 
     if (price <= 0) return '0';
     return (numAmount / price).toFixed(2);
   };
 
   const handleSubmit = async () => {
-    if (!amount || !paymentMethod) {
+    if (!amount || !selectedCurrency || !selectedPaymentMethod) {
       setError('Please fill in all required fields');
       return;
     }
@@ -103,12 +116,12 @@ export default function P2PPage() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           type: mode === 'buy' ? 'p2p_buy' : 'p2p_sell',
-          fromCoin: currency,
+          fromCoin: selectedCurrency.code,
           toCoin: 'USDT',
           amountSent: numAmount,
           amountReceived: parseFloat(usdtAmount),
           receivingAddress: walletAddress.trim(),
-          paymentMethod,
+          paymentMethod: selectedPaymentMethod,
           telegramUsername: telegramUsername.trim(),
         }),
       });
@@ -130,8 +143,8 @@ export default function P2PPage() {
 
   const usdtAmount = calculateUSDT();
   const price = mode === 'buy'
-    ? parseFloat(settings.p2pBuyPrice || '0')
-    : parseFloat(settings.p2pSellPrice || '0');
+    ? parseFloat(selectedCurrency?.buyPrice || '0')
+    : parseFloat(selectedCurrency?.sellPrice || '0');
 
   const showDisabled = settings.p2pEnabled === 'false';
 
@@ -200,29 +213,51 @@ export default function P2PPage() {
               </div>
             </div>
 
-            <div className="bg-gray-900/80 backdrop-blur-xl border border-gray-800 rounded-2xl p-6">
-              <h2 className="text-lg font-semibold text-white mb-4">Current Rate</h2>
-              <div className="grid grid-cols-2 gap-4">
-                <div className="bg-gray-800/50 p-4 rounded-xl text-center">
-                  <div className="text-sm text-gray-400 mb-1">Buy USDT</div>
-                  <div className="text-2xl font-bold text-cyan-400">
-                    {settings.p2pBuyPrice ? `${settings.p2pBuyPrice} ${currency}` : 'Not set'}
+            {currencies.length > 0 && (
+              <div className="bg-gray-900/80 backdrop-blur-xl border border-gray-800 rounded-2xl p-6">
+                <h2 className="text-lg font-semibold text-white mb-4">Current Rate</h2>
+                <div className="grid grid-cols-2 gap-4">
+                  <div className="bg-gray-800/50 p-4 rounded-xl text-center">
+                    <div className="text-sm text-gray-400 mb-1">Buy USDT</div>
+                    <div className="text-2xl font-bold text-cyan-400">
+                      {selectedCurrency?.buyPrice || '---'} {selectedCurrency?.code || ''}
+                    </div>
                   </div>
-                </div>
-                <div className="bg-gray-800/50 p-4 rounded-xl text-center">
-                  <div className="text-sm text-gray-400 mb-1">Sell USDT</div>
-                  <div className="text-2xl font-bold text-green-400">
-                    {settings.p2pSellPrice ? `${settings.p2pSellPrice} ${currency}` : 'Not set'}
+                  <div className="bg-gray-800/50 p-4 rounded-xl text-center">
+                    <div className="text-sm text-gray-400 mb-1">Sell USDT</div>
+                    <div className="text-2xl font-bold text-green-400">
+                      {selectedCurrency?.sellPrice || '---'} {selectedCurrency?.code || ''}
+                    </div>
                   </div>
                 </div>
               </div>
-            </div>
+            )}
 
             <div className="bg-gray-900/80 backdrop-blur-xl border border-gray-800 rounded-2xl p-6">
               <h2 className="text-lg font-semibold text-white mb-4">Amount</h2>
               <div className="space-y-4">
                 <div>
-                  <label className="block text-sm text-gray-400 mb-2">Amount in {currency}</label>
+                  <label className="block text-sm text-gray-400 mb-2">Currency</label>
+                  <select
+                    value={selectedCurrency?.id || ''}
+                    onChange={(e) => {
+                      const currency = currencies.find(c => c.id === e.target.value);
+                      setSelectedCurrency(currency || null);
+                      setSelectedPaymentMethod('');
+                    }}
+                    className="w-full px-4 py-3 bg-gray-800/50 border border-gray-700 rounded-xl text-white focus:outline-none focus:border-cyan-500 transition-colors"
+                  >
+                    {currencies.length === 0 ? (
+                      <option value="">No currencies available</option>
+                    ) : (
+                      currencies.map((c) => (
+                        <option key={c.id} value={c.id}>{c.name} ({c.code})</option>
+                      ))
+                    )}
+                  </select>
+                </div>
+                <div>
+                  <label className="block text-sm text-gray-400 mb-2">Amount in {selectedCurrency?.code || 'currency'}</label>
                   <input
                     type="number"
                     value={amount}
@@ -230,18 +265,6 @@ export default function P2PPage() {
                     placeholder="Enter amount"
                     className="w-full px-4 py-3 bg-gray-800/50 border border-gray-700 rounded-xl text-white placeholder-gray-500 focus:outline-none focus:border-cyan-500 transition-colors"
                   />
-                </div>
-                <div>
-                  <label className="block text-sm text-gray-400 mb-2">Currency</label>
-                  <select
-                    value={currency}
-                    onChange={(e) => setCurrency(e.target.value)}
-                    className="w-full px-4 py-3 bg-gray-800/50 border border-gray-700 rounded-xl text-white focus:outline-none focus:border-cyan-500 transition-colors"
-                  >
-                    {CURRENCIES.map((c) => (
-                      <option key={c.code} value={c.code}>{c.name} ({c.code})</option>
-                    ))}
-                  </select>
                 </div>
               </div>
             </div>
@@ -257,19 +280,32 @@ export default function P2PPage() {
               </div>
             )}
 
-            <div className="bg-gray-900/80 backdrop-blur-xl border border-gray-800 rounded-2xl p-6">
-              <h2 className="text-lg font-semibold text-white mb-4">Payment Method</h2>
-              <select
-                value={paymentMethod}
-                onChange={(e) => setPaymentMethod(e.target.value)}
-                className="w-full px-4 py-3 bg-gray-800/50 border border-gray-700 rounded-xl text-white focus:outline-none focus:border-cyan-500 transition-colors"
-              >
-                <option value="">Select payment method</option>
-                {PAYMENT_METHODS.map((pm) => (
-                  <option key={pm.code} value={pm.code}>{pm.name}</option>
-                ))}
-              </select>
-            </div>
+            {selectedCurrency && selectedCurrency.paymentMethods.length > 0 && (
+              <div className="bg-gray-900/80 backdrop-blur-xl border border-gray-800 rounded-2xl p-6">
+                <h2 className="text-lg font-semibold text-white mb-4">Payment Method</h2>
+                <select
+                  value={selectedPaymentMethod}
+                  onChange={(e) => setSelectedPaymentMethod(e.target.value)}
+                  className="w-full px-4 py-3 bg-gray-800/50 border border-gray-700 rounded-xl text-white focus:outline-none focus:border-cyan-500 transition-colors"
+                >
+                  <option value="">Select payment method</option>
+                  {selectedCurrency.paymentMethods.map((pm) => (
+                    <option key={pm.id} value={pm.name}>{pm.name}</option>
+                  ))}
+                </select>
+                {selectedPaymentMethod && (() => {
+                  const method = selectedCurrency.paymentMethods.find(p => p.name === selectedPaymentMethod);
+                  if (method?.instructions) {
+                    return (
+                      <div className="mt-3 p-3 bg-gray-800/50 rounded-xl">
+                        <p className="text-gray-400 text-sm">{method.instructions}</p>
+                      </div>
+                    );
+                  }
+                  return null;
+                })()}
+              </div>
+            )}
 
             {mode === 'buy' && (
               <div className="bg-gray-900/80 backdrop-blur-xl border border-gray-800 rounded-2xl p-6">
@@ -297,7 +333,7 @@ export default function P2PPage() {
 
             <button
               onClick={handleSubmit}
-              disabled={submitting || !amount || !paymentMethod || (mode === 'buy' && !walletAddress)}
+              disabled={submitting || !amount || !selectedCurrency || !selectedPaymentMethod || (mode === 'buy' && !walletAddress)}
               className="w-full py-4 bg-gradient-to-r from-cyan-500 to-blue-500 hover:from-cyan-400 hover:to-blue-400 disabled:from-gray-700 disabled:to-gray-700 text-white font-semibold rounded-xl transition-all disabled:cursor-not-allowed"
             >
               {submitting ? (

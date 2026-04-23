@@ -40,19 +40,19 @@ export default function OrderDetailsPage({ params }: { params: Promise<{ id: str
   const [txidInput, setTxidInput] = useState('');
   const [qrImageError, setQrImageError] = useState(false);
   const [walletCopied, setWalletCopied] = useState(false);
+  const [lastAdminNote, setLastAdminNote] = useState('');
 
   useEffect(() => {
     fetchOrder();
     fetchSettings();
-  }, [resolvedParams.id]);
 
-  const handleCopyWallet = () => {
-    if (settings.usdtWalletAddress) {
-      navigator.clipboard.writeText(settings.usdtWalletAddress);
-      setWalletCopied(true);
-      setTimeout(() => setWalletCopied(false), 2000);
-    }
-  };
+    // Poll for updates every 5 seconds for live admin note
+    const pollInterval = setInterval(() => {
+      fetchOrder();
+    }, 5000);
+
+    return () => clearInterval(pollInterval);
+  }, [resolvedParams.id]);
 
   const fetchOrder = async () => {
     try {
@@ -68,6 +68,12 @@ export default function OrderDetailsPage({ params }: { params: Promise<{ id: str
       const data = await res.json();
       setOrder(data);
       setTxidInput(data.txid || '');
+
+      // Check if admin note changed
+      if (data.adminNote !== lastAdminNote && lastAdminNote !== '') {
+        // Optionally show a notification that admin note was updated
+      }
+      setLastAdminNote(data.adminNote || '');
     } catch (err) {
       console.error('Fetch order error:', err);
       setError('Network error');
@@ -117,6 +123,14 @@ export default function OrderDetailsPage({ params }: { params: Promise<{ id: str
     setQrImageError(true);
     e.currentTarget.onerror = null;
     e.currentTarget.src = QR_PLACEHOLDER;
+  };
+
+  const handleCopyWallet = () => {
+    if (settings.usdtWalletAddress) {
+      navigator.clipboard.writeText(settings.usdtWalletAddress);
+      setWalletCopied(true);
+      setTimeout(() => setWalletCopied(false), 2000);
+    }
   };
 
   const formatNumber = (num: number, decimals = 8): string => {
@@ -250,14 +264,7 @@ export default function OrderDetailsPage({ params }: { params: Promise<{ id: str
               </span>
             </div>
 
-            {isP2PSell && (
-              <div className="flex items-center justify-between">
-                <span className="text-gray-400">Payment Method</span>
-                <span className="text-white">{getPaymentMethodLabel(order.paymentMethod)}</span>
-              </div>
-            )}
-
-            {isP2PBuy && (
+            {(isP2PSell || isP2PBuy) && (
               <div className="flex items-center justify-between">
                 <span className="text-gray-400">Payment Method</span>
                 <span className="text-white">{getPaymentMethodLabel(order.paymentMethod)}</span>
@@ -289,13 +296,23 @@ export default function OrderDetailsPage({ params }: { params: Promise<{ id: str
           </div>
         </div>
 
-        {/* Admin Note */}
-        {order.adminNote && (
-          <div className="bg-gray-900/80 backdrop-blur-xl border border-gray-800 rounded-2xl p-6 mb-6">
-            <h3 className="text-sm text-gray-400 mb-2">Admin Note</h3>
-            <p className="text-white">{order.adminNote}</p>
+        {/* Admin Note - Live Section */}
+        <div className="bg-gray-900/80 backdrop-blur-xl border border-gray-800 rounded-2xl p-6 mb-6">
+          <div className="flex items-center justify-between mb-2">
+            <h3 className="text-sm text-gray-400 font-medium">Admin Note</h3>
+            {(isP2PSell || isP2PBuy) && (
+              <span className="flex items-center gap-1 text-xs text-gray-500">
+                <span className="w-2 h-2 bg-green-500 rounded-full animate-pulse" />
+                Live
+              </span>
+            )}
           </div>
-        )}
+          {order.adminNote ? (
+            <p className="text-white">{order.adminNote}</p>
+          ) : (
+            <p className="text-gray-500 italic">No admin note yet</p>
+          )}
+        </div>
 
         {/* P2P Sell: USDT Payment QR Code & Wallet */}
         {isP2PSell && (
@@ -418,7 +435,7 @@ export default function OrderDetailsPage({ params }: { params: Promise<{ id: str
           </div>
         )}
 
-        {/* Telegram Contact (shown after creation for all P2P) */}
+        {/* Telegram Contact (shown for all P2P) */}
         {(isP2PSell || isP2PBuy) && (
           <div className="bg-gray-900/80 backdrop-blur-xl border border-gray-800 rounded-2xl p-6 mb-6">
             <h2 className="text-lg font-semibold text-white mb-4">Need Help?</h2>
