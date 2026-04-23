@@ -1,60 +1,31 @@
-import { NextRequest, NextResponse } from 'next/server';
-import jwt from 'jsonwebtoken';
+import { NextResponse } from 'next/server';
 import connectDB from '@/lib/mongodb';
 import Order from '@/lib/models/Order';
-import { adminRateLimiter } from '@/lib/rateLimit';
-
-const JWT_SECRET = process.env.JWT_SECRET!;
-
-if (!JWT_SECRET) {
-  throw new Error('JWT_SECRET environment variable is required');
-}
-
-function extractToken(request: Request): string | null {
-  const cookieHeader = request.headers.get('cookie');
-  if (!cookieHeader) return null;
-
-  // Check admin_token first (set by admin login), then auth_token (user login)
-  const adminMatch = cookieHeader.match(/admin_token=([^;]+)/);
-  if (adminMatch) return adminMatch[1];
-
-  const authMatch = cookieHeader.match(/auth_token=([^;]+)/);
-  if (authMatch) return authMatch[1];
-
-  return null;
-}
-
-function verifyToken(request: Request) {
-  const token = extractToken(request);
-  if (!token) throw new Error('Unauthorized');
-
-  return jwt.verify(token, JWT_SECRET) as { userId: string; email: string; role: string };
-}
+import { getAdminFromCookies } from '@/lib/adminAuth';
 
 export async function PATCH(
   request: Request,
   { params }: { params: Promise<{ id: string }> }
 ) {
-  // Rate limiting
-  const ip = request.headers.get('x-forwarded-for') || 'unknown';
-  const rateLimitResult = adminRateLimiter(ip);
-
-  if (!rateLimitResult.success) {
-    return NextResponse.json(
-      { error: 'Too many requests. Please try again later.' },
-      { status: 429 }
-    );
-  }
+  console.log('[Admin Order Update] PATCH request');
 
   try {
-    verifyToken(request);
+    const admin = await getAdminFromCookies();
+    if (!admin) {
+      console.log('[Admin Order Update] Not authenticated as admin');
+      return NextResponse.json({ error: 'Unauthorized - Admin access required' }, { status: 401 });
+    }
+    console.log('[Admin Order Update] Admin authenticated:', admin.email);
+
     await connectDB();
     const { id } = await params;
     const body = await request.json();
     const { status } = body;
 
-    if (!status || !['pending', 'completed'].includes(status)) {
-      return NextResponse.json({ error: 'Invalid status' }, { status: 400 });
+    console.log('[Admin Order Update] Order:', id, 'New status:', status);
+
+    if (!status || !['pending', 'completed', 'cancelled'].includes(status)) {
+      return NextResponse.json({ error: 'Invalid status. Must be: pending, completed, or cancelled' }, { status: 400 });
     }
 
     const order = await Order.findOneAndUpdate(
@@ -64,12 +35,14 @@ export async function PATCH(
     );
 
     if (!order) {
+      console.log('[Admin Order Update] Order not found:', id);
       return NextResponse.json({ error: 'Order not found' }, { status: 404 });
     }
 
-    return NextResponse.json(order);
-  } catch (error) {
-    console.error('Order update error:', error);
-    return NextResponse.json({ error: 'Failed to update order' }, { status: 500 });
+    console.log('[Admin Order Update] Order updated:', order.orderId, 'Status:', order.status);
+    return NextResponse.json({ success: true, order });
+  } catch (error: any) {
+    console.error('[Admin Order Update] Error:', error);
+    return NextResponse.json({ error: error.message || 'Failed to update order' }, { status: 500 });
   }
 }

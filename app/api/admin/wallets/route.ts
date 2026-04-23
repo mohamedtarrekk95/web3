@@ -1,152 +1,121 @@
-import { NextRequest, NextResponse } from 'next/server';
-import jwt from 'jsonwebtoken';
+import { NextResponse } from 'next/server';
 import connectDB from '@/lib/mongodb';
 import Wallet from '@/lib/models/Wallet';
-import { adminRateLimiter } from '@/lib/rateLimit';
+import { getAdminFromCookies } from '@/lib/adminAuth';
 
-const JWT_SECRET = process.env.JWT_SECRET!;
-
-if (!JWT_SECRET) {
-  throw new Error('JWT_SECRET environment variable is required');
-}
-
-function extractToken(request: Request): string | null {
-  const cookieHeader = request.headers.get('cookie');
-  console.log('[Admin Wallets] Cookie header received:', cookieHeader?.substring(0, 50) + '...');
-
-  if (!cookieHeader) return null;
-
-  const adminMatch = cookieHeader.match(/admin_token=([^;]+)/);
-  if (adminMatch) {
-    console.log('[Admin Wallets] Found admin_token');
-    return adminMatch[1];
-  }
-
-  const authMatch = cookieHeader.match(/auth_token=([^;]+)/);
-  if (authMatch) {
-    console.log('[Admin Wallets] Found auth_token');
-    return authMatch[1];
-  }
-
-  console.log('[Admin Wallets] No token found in cookies');
-  return null;
-}
-
-function verifyToken(request: Request) {
-  const token = extractToken(request);
-  if (!token) throw new Error('Unauthorized - No token');
+export async function GET() {
+  console.log('[Admin Wallets] GET request');
 
   try {
-    const decoded = jwt.verify(token, JWT_SECRET) as { userId?: string; email?: string; username?: string; role: string };
-    console.log('[Admin Wallets] JWT decoded:', JSON.stringify(decoded));
-    console.log('[Admin Wallets] Role:', decoded.role);
-    return decoded;
-  } catch (err) {
-    console.log('[Admin Wallets] JWT verify failed:', err);
-    throw new Error('Unauthorized - Invalid token');
-  }
-}
-
-export async function GET(request: Request) {
-  console.log('[Admin Wallets] GET request received');
-
-  const ip = request.headers.get('x-forwarded-for') || 'unknown';
-  const rateLimitResult = adminRateLimiter(ip);
-
-  if (!rateLimitResult.success) {
-    return NextResponse.json(
-      { error: 'Too many requests. Please try again later.' },
-      { status: 429 }
-    );
-  }
-
-  try {
-    const decoded = verifyToken(request);
-    console.log('[Admin Wallets] Token verified, role:', decoded.role);
-
-    if (decoded.role !== 'admin') {
-      console.log('[Admin Wallets] ACCESS DENIED - role is not admin:', decoded.role);
-      return NextResponse.json({ error: 'Forbidden - Not an admin' }, { status: 403 });
+    const admin = await getAdminFromCookies();
+    if (!admin) {
+      console.log('[Admin Wallets] Not authenticated as admin');
+      return NextResponse.json({ error: 'Unauthorized - Admin access required' }, { status: 401 });
     }
+    console.log('[Admin Wallets] Admin authenticated:', admin.email);
 
     await connectDB();
     const wallets = await Wallet.find().sort({ coinSymbol: 1 });
     console.log('[Admin Wallets] Found', wallets.length, 'wallets');
-    return NextResponse.json(wallets);
+
+    return NextResponse.json({
+      success: true,
+      wallets: wallets
+    });
   } catch (error: any) {
-    console.log('[Admin Wallets] Error:', error.message);
-    return NextResponse.json({ error: error.message || 'Unauthorized' }, { status: 401 });
+    console.error('[Admin Wallets] Error:', error);
+    return NextResponse.json({ error: error.message || 'Failed to fetch wallets' }, { status: 500 });
   }
 }
 
 export async function POST(request: Request) {
-  console.log('[Admin Wallets] POST request received');
-
-  const ip = request.headers.get('x-forwarded-for') || 'unknown';
-  const rateLimitResult = adminRateLimiter(ip);
-
-  if (!rateLimitResult.success) {
-    return NextResponse.json(
-      { error: 'Too many requests. Please try again later.' },
-      { status: 429 }
-    );
-  }
+  console.log('[Admin Wallets] POST request');
 
   try {
-    const decoded = verifyToken(request);
-    console.log('[Admin Wallets] Token verified, role:', decoded.role);
-
-    if (decoded.role !== 'admin') {
-      console.log('[Admin Wallets] ACCESS DENIED - role is not admin:', decoded.role);
-      return NextResponse.json({ error: 'Forbidden - Not an admin' }, { status: 403 });
+    const admin = await getAdminFromCookies();
+    if (!admin) {
+      console.log('[Admin Wallets] Not authenticated as admin');
+      return NextResponse.json({ error: 'Unauthorized - Admin access required' }, { status: 401 });
     }
+    console.log('[Admin Wallets] Admin authenticated:', admin.email);
 
     await connectDB();
     const body = await request.json();
     console.log('[Admin Wallets] Request body:', JSON.stringify(body));
 
-    // Support both field names: qrCodeUrl or qrCodeImageUrl
-    let { coinSymbol, address, qrCodeUrl } = body;
-    if (!qrCodeUrl && body.qrCodeImageUrl) {
-      qrCodeUrl = body.qrCodeImageUrl;
+    // Parse fields - support both naming conventions
+    let { coinSymbol, address, qrCodeUrl, qrCodeImageUrl } = body;
+
+    // Use whichever field is provided
+    if (!qrCodeUrl && qrCodeImageUrl) {
+      qrCodeUrl = qrCodeImageUrl;
     }
 
-    console.log('[Admin Wallets] Parsed - coinSymbol:', coinSymbol, 'address:', address, 'qrCodeUrl:', qrCodeUrl);
+    console.log('[Admin Wallets] Parsed values:', {
+      coinSymbol,
+      address,
+      qrCodeUrl
+    });
 
+    // Validation
     if (!coinSymbol || !address) {
       console.log('[Admin Wallets] Missing required fields');
-      return NextResponse.json({ error: 'Missing required fields: coinSymbol and address' }, { status: 400 });
+      return NextResponse.json(
+        { error: 'Missing required fields: coinSymbol and walletAddress' },
+        { status: 400 }
+      );
     }
 
-    // Validate coin symbol format
-    if (!/^[A-Z]{2,10}$/.test(coinSymbol.toUpperCase())) {
+    // Validate coin symbol (uppercase, 2-10 chars)
+    const symbol = coinSymbol.toUpperCase().trim();
+    if (!/^[A-Z]{2,10}$/.test(symbol)) {
       console.log('[Admin Wallets] Invalid coin symbol:', coinSymbol);
-      return NextResponse.json({ error: 'Invalid coin symbol format' }, { status: 400 });
+      return NextResponse.json(
+        { error: 'Invalid coin symbol. Must be 2-10 uppercase letters.' },
+        { status: 400 }
+      );
     }
 
-    // Validate address length (basic check)
-    const addrStr = String(address || '').trim();
-    if (addrStr.length < 5 || addrStr.length > 200) {
-      console.log('[Admin Wallets] Invalid address length:', addrStr.length);
-      return NextResponse.json({ error: 'Invalid wallet address length' }, { status: 400 });
+    // Validate address (basic length check)
+    const addressStr = String(address).trim();
+    if (addressStr.length < 5) {
+      console.log('[Admin Wallets] Address too short:', addressStr.length);
+      return NextResponse.json(
+        { error: 'Wallet address too short' },
+        { status: 400 }
+      );
     }
 
-    console.log('[Admin Wallets] Saving wallet for:', coinSymbol.toUpperCase());
+    if (addressStr.length > 200) {
+      console.log('[Admin Wallets] Address too long:', addressStr.length);
+      return NextResponse.json(
+        { error: 'Wallet address too long' },
+        { status: 400 }
+      );
+    }
 
+    // Save wallet (upsert)
+    console.log('[Admin Wallets] Upserting wallet for:', symbol);
     const wallet = await Wallet.findOneAndUpdate(
-      { coinSymbol: coinSymbol.toUpperCase() },
+      { coinSymbol: symbol },
       {
-        coinSymbol: coinSymbol.toUpperCase(),
-        address: addrStr,
+        coinSymbol: symbol,
+        address: addressStr,
         qrCodeUrl: qrCodeUrl || ''
       },
       { upsert: true, new: true }
     );
 
     console.log('[Admin Wallets] Wallet saved successfully:', JSON.stringify(wallet));
-    return NextResponse.json(wallet);
+    return NextResponse.json({
+      success: true,
+      wallet: wallet
+    });
   } catch (error: any) {
-    console.error('[Admin Wallets] MongoDB/save error:', error);
-    return NextResponse.json({ error: 'Failed to save wallet: ' + error.message }, { status: 500 });
+    console.error('[Admin Wallets] Error:', error);
+    return NextResponse.json(
+      { error: 'Failed to save wallet: ' + error.message },
+      { status: 500 }
+    );
   }
 }

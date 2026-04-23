@@ -7,39 +7,28 @@ const JWT_SECRET = process.env.JWT_SECRET || 'your-secret-key-change-in-producti
 export function middleware(request: NextRequest) {
   const { pathname } = request.nextUrl;
 
-  console.log('[Middleware] Path:', pathname);
-
+  // Simple logging - actual auth happens in route handlers using getAdminFromCookies()
   if (pathname.startsWith('/api/admin')) {
+    console.log('[Middleware] Admin route intercepted:', pathname);
+
+    // Quick check - just ensure token exists, actual role check is in route handler
     const authToken = request.cookies.get('auth_token')?.value;
     const adminToken = request.cookies.get('admin_token')?.value;
     const token = adminToken || authToken;
 
-    console.log('[Middleware] Admin route accessed');
-    console.log('[Middleware] auth_token present:', !!authToken);
-    console.log('[Middleware] admin_token present:', !!adminToken);
-
     if (!token) {
-      console.log('[Middleware] No token - returning 401');
-      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
-    }
-
-    try {
-      const decoded = jwt.verify(token, JWT_SECRET) as { userId?: string; email?: string; username?: string; role: string };
-      console.log('[Middleware] Token decoded:', JSON.stringify(decoded));
-      console.log('[Middleware] Role:', decoded.role);
-
-      if (!decoded || decoded.role !== 'admin') {
-        console.log('[Middleware] Not admin or invalid - returning 403');
-        return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
+      console.log('[Middleware] No token - route handler will return 401');
+    } else {
+      try {
+        const decoded = jwt.verify(token, JWT_SECRET);
+        console.log('[Middleware] Token valid for:', (decoded as any).email, 'role:', (decoded as any).role);
+      } catch {
+        console.log('[Middleware] Token invalid - route handler will return 401');
       }
-
-      console.log('[Middleware] Admin access granted');
-    } catch (err) {
-      console.log('[Middleware] Token verification failed:', err);
-      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
     }
   }
 
+  // Pass through - actual auth happens in route handlers
   return NextResponse.next();
 }
 
