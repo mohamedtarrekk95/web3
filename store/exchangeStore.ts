@@ -6,13 +6,10 @@ interface Coin {
   icon: string;
 }
 
-interface PriceCache {
-  price: number;
-  marketRate: number;
-  total: number;
-  timestamp: number;
-  fallback: boolean;
-  source: 'websocket' | 'cache';
+interface WalletInfo {
+  symbol: string;
+  address: string;
+  qrCodeImageUrl: string;
 }
 
 interface ExchangeState {
@@ -28,10 +25,19 @@ interface ExchangeState {
   priceValidUntil: number | null;
   fallback: boolean;
   priceMessage: string;
-  priceCache: Record<string, PriceCache>;
+  priceCache: Record<string, { price: number; marketRate: number; total: number; timestamp: number; fallback: boolean; source: 'websocket' | 'cache' }>;
   wsConnected: boolean;
   wsReconnecting: boolean;
   livePrices: Record<string, number>;
+  // Checkout data
+  checkoutData: {
+    fromCoin: Coin | null;
+    toCoin: Coin | null;
+    amount: string;
+    total: number;
+    price: number;
+    walletInfo: WalletInfo | null;
+  } | null;
   setCoins: (coins: Coin[]) => void;
   setFromCoin: (coin: Coin) => void;
   setToCoin: (coin: Coin) => void;
@@ -39,8 +45,8 @@ interface ExchangeState {
   setPrice: (price: number, marketRate: number, total: number, validUntil: number, fallback: boolean, message?: string) => void;
   setLoading: (loading: boolean) => void;
   setIsUpdating: (updating: boolean) => void;
-  setPriceCache: (key: string, data: PriceCache) => void;
-  getPriceCache: (key: string) => PriceCache | null;
+  setPriceCache: (key: string, data: { price: number; marketRate: number; total: number; timestamp: number; fallback: boolean; source: 'websocket' | 'cache' }) => void;
+  getPriceCache: (key: string) => { price: number; marketRate: number; total: number; timestamp: number; fallback: boolean; source: 'websocket' | 'cache' } | null;
   clearPrice: () => void;
   swapCoins: () => void;
   reset: () => void;
@@ -48,6 +54,8 @@ interface ExchangeState {
   setWsReconnecting: (reconnecting: boolean) => void;
   updateLivePrice: (symbol: string, price: number) => void;
   setLivePrices: (prices: Record<string, number>) => void;
+  setCheckoutData: (data: ExchangeState['checkoutData']) => void;
+  clearCheckoutData: () => void;
 }
 
 export const useExchangeStore = create<ExchangeState>((set, get) => ({
@@ -67,6 +75,8 @@ export const useExchangeStore = create<ExchangeState>((set, get) => ({
   wsConnected: false,
   wsReconnecting: false,
   livePrices: {},
+  checkoutData: null,
+
   setCoins: (coins) => set({ coins }),
   setFromCoin: (fromCoin) => set({ fromCoin }),
   setToCoin: (toCoin) => set({ toCoin }),
@@ -111,6 +121,7 @@ export const useExchangeStore = create<ExchangeState>((set, get) => ({
     priceValidUntil: null,
     fallback: false,
     priceMessage: '',
+    checkoutData: null,
   }),
 
   setWsConnected: (wsConnected) => set({ wsConnected }),
@@ -120,4 +131,7 @@ export const useExchangeStore = create<ExchangeState>((set, get) => ({
       livePrices: { ...state.livePrices, [symbol]: price },
     })),
   setLivePrices: (prices) => set({ livePrices: prices }),
+
+  setCheckoutData: (data) => set({ checkoutData: data }),
+  clearCheckoutData: () => set({ checkoutData: null }),
 }));

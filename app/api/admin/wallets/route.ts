@@ -15,7 +15,7 @@ export async function GET() {
     console.log('[Admin Wallets] Admin authenticated:', admin.email);
 
     await connectDB();
-    const wallets = await Wallet.find().sort({ coinSymbol: 1 });
+    const wallets = await Wallet.find().sort({ symbol: 1 });
     console.log('[Admin Wallets] Found', wallets.length, 'wallets');
 
     return NextResponse.json({
@@ -43,65 +43,52 @@ export async function POST(request: Request) {
     const body = await request.json();
     console.log('[Admin Wallets] Request body:', JSON.stringify(body));
 
-    // Parse fields - support both naming conventions
-    let { coinSymbol, address, qrCodeUrl, qrCodeImageUrl } = body;
+    // Support multiple field names from frontend
+    let { symbol, coinSymbol, address, qrCodeImageUrl, qrCodeUrl } = body;
 
     // Use whichever field is provided
-    if (!qrCodeUrl && qrCodeImageUrl) {
-      qrCodeUrl = qrCodeImageUrl;
-    }
+    const finalSymbol = symbol || coinSymbol;
+    const finalAddress = address || '';
+    const finalQrCodeUrl = qrCodeImageUrl || qrCodeUrl || '';
 
     console.log('[Admin Wallets] Parsed values:', {
-      coinSymbol,
-      address,
-      qrCodeUrl
+      symbol: finalSymbol,
+      address: finalAddress,
+      qrCodeImageUrl: finalQrCodeUrl
     });
 
-    // Validation
-    if (!coinSymbol || !address) {
+    // Only require symbol and address (free text, no format validation)
+    if (!finalSymbol || !finalAddress) {
       console.log('[Admin Wallets] Missing required fields');
       return NextResponse.json(
-        { error: 'Missing required fields: coinSymbol and walletAddress' },
+        { error: 'Missing required fields: symbol and address' },
         { status: 400 }
       );
     }
 
-    // Validate coin symbol (uppercase, 2-10 chars)
-    const symbol = coinSymbol.toUpperCase().trim();
-    if (!/^[A-Z]{2,10}$/.test(symbol)) {
-      console.log('[Admin Wallets] Invalid coin symbol:', coinSymbol);
+    // Normalize symbol to uppercase
+    const normalizedSymbol = finalSymbol.toUpperCase().trim();
+    if (!/^[A-Z]{2,10}$/.test(normalizedSymbol)) {
+      console.log('[Admin Wallets] Invalid symbol:', finalSymbol);
       return NextResponse.json(
-        { error: 'Invalid coin symbol. Must be 2-10 uppercase letters.' },
+        { error: 'Invalid coin symbol format' },
         { status: 400 }
       );
     }
 
-    // Validate address (basic length check)
-    const addressStr = String(address).trim();
-    if (addressStr.length < 5) {
-      console.log('[Admin Wallets] Address too short:', addressStr.length);
-      return NextResponse.json(
-        { error: 'Wallet address too short' },
-        { status: 400 }
-      );
-    }
+    // NO validation on address - free text allowed
+    // Just ensure it's a non-empty string
+    const addressStr = String(finalAddress).trim();
 
-    if (addressStr.length > 200) {
-      console.log('[Admin Wallets] Address too long:', addressStr.length);
-      return NextResponse.json(
-        { error: 'Wallet address too long' },
-        { status: 400 }
-      );
-    }
+    console.log('[Admin Wallets] Saving wallet for:', normalizedSymbol);
 
-    // Save wallet (upsert)
-    console.log('[Admin Wallets] Upserting wallet for:', symbol);
+    // Upsert wallet
     const wallet = await Wallet.findOneAndUpdate(
-      { coinSymbol: symbol },
+      { symbol: normalizedSymbol },
       {
-        coinSymbol: symbol,
+        symbol: normalizedSymbol,
         address: addressStr,
-        qrCodeUrl: qrCodeUrl || ''
+        qrCodeImageUrl: finalQrCodeUrl
       },
       { upsert: true, new: true }
     );

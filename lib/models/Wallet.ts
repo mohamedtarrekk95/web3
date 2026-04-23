@@ -1,15 +1,15 @@
 import mongoose, { Schema, Document } from 'mongoose';
 
 export interface IWallet extends Document {
-  coinSymbol: string;
+  symbol: string;
   address: string;
-  qrCodeUrl: string;
+  qrCodeImageUrl: string;
 }
 
 const WalletSchema = new Schema<IWallet>({
-  coinSymbol: { type: String, required: true, unique: true, uppercase: true },
-  address: { type: String, required: true },
-  qrCodeUrl: { type: String, default: '' },
+  symbol: { type: String, required: true, unique: true, uppercase: true },
+  address: { type: String, required: true, default: '' },
+  qrCodeImageUrl: { type: String, default: '' },
 });
 
 export default mongoose.models.Wallet || mongoose.model<IWallet>('Wallet', WalletSchema);

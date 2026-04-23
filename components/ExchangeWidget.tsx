@@ -29,6 +29,7 @@ function ExchangeWidgetComponent() {
     setAmount,
     setPrice,
     setLoading,
+    setCheckoutData,
     swapCoins,
   } = useExchangeStore();
 
@@ -82,30 +83,27 @@ function ExchangeWidgetComponent() {
     setTimeout(() => setIsSwapping(false), 300);
   }, [isSwapping, swapCoins]);
 
-  // Exchange handler
-  const handleExchange = useCallback(async () => {
+  // Proceed to checkout handler
+  const handleProceedToCheckout = useCallback(async () => {
     if (!fromCoin || !toCoin || !amount || parseFloat(amount) <= 0 || total <= 0 || loading) return;
 
-    try {
-      const res = await fetch('/api/orders', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          fromCoin: fromCoin.symbol,
-          toCoin: toCoin.symbol,
-          amountSent: parseFloat(amount),
-          amountReceived: total,
-        }),
-      });
+    console.log('[ExchangeWidget] Proceeding to checkout...');
+    console.log('[ExchangeWidget] From:', fromCoin.symbol, 'To:', toCoin.symbol);
+    console.log('[ExchangeWidget] Amount:', amount, 'Total:', total);
 
-      const order = await res.json();
-      if (res.ok) {
-        router.push(`/invoice/${order.orderId}`);
-      }
-    } catch (error) {
-      console.error('Order error:', error);
-    }
-  }, [fromCoin, toCoin, amount, total, loading, router]);
+    // Store checkout data in store
+    setCheckoutData({
+      fromCoin,
+      toCoin,
+      amount,
+      total,
+      price,
+      walletInfo: null,
+    });
+
+    // Navigate to checkout
+    router.push('/checkout');
+  }, [fromCoin, toCoin, amount, total, loading, price, setCheckoutData, router]);
 
   // Format numbers safely
   const formatNumber = useCallback((num: number, decimals = 8): string => {
@@ -268,9 +266,9 @@ function ExchangeWidgetComponent() {
             <span className="text-xs">Real-time via WebSocket</span>
           </div>
 
-          {/* Exchange Button */}
+          {/* Checkout Button */}
           <button
-            onClick={handleExchange}
+            onClick={handleProceedToCheckout}
             disabled={!fromCoin || !toCoin || !amount || parseFloat(amount) <= 0 || total <= 0 || loading}
             className="w-full py-4 bg-gradient-to-r from-cyan-500 to-blue-500 hover:from-cyan-400 hover:to-blue-400 disabled:from-gray-700 disabled:to-gray-700 text-white font-semibold rounded-xl transition-all duration-200 disabled:cursor-not-allowed"
           >
@@ -283,7 +281,7 @@ function ExchangeWidgetComponent() {
             ) : total <= 0 ? (
               'Enter valid amount'
             ) : (
-              'Exchange Now'
+              'Proceed to Checkout'
             )}
           </button>
         </div>

@@ -33,7 +33,7 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'Invalid amounts' }, { status: 400 });
     }
 
-    const wallet = await Wallet.findOne({ coinSymbol: fromCoin.toUpperCase() });
+    const wallet = await Wallet.findOne({ symbol: fromCoin.toUpperCase() });
     const walletAddress = wallet?.address || 'Pending';
 
     const order = new Order({

@@ -6,10 +6,12 @@ import { AdminRoute } from '@/components/AdminRoute';
 
 interface Wallet {
   _id: string;
-  coinSymbol: string;
+  symbol: string;
   address: string;
-  qrCodeUrl: string;
+  qrCodeImageUrl: string;
 }
+
+const DEFAULT_COIN_ICON = 'data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHdpZHRoPSI0OCIgaGVpZ2h0PSI0OCI+PHJlY3Qgd2lkdGg9IjQ4IiBoZWlnaHQ9IjQ4IiBmaWxsPSIjMzMzNjY2Ii8+PHRleHQgeD0iNTAlIiB5PSI1MCUiIHRleHQtYW5jaG9yPSJtaWRkbGUiIGZvbnQtZmFtaWx5PSJBcmlhbCIgZm9udC1zaXplPSIxMiIgZmlsbD0iI2ZmZiI+PC90ZXh0Pjwvc3ZnPg==';
 
 export default function AdminWallets() {
   const { user, isAuthenticated, loading } = useAuth();
@@ -36,15 +38,10 @@ export default function AdminWallets() {
       console.log('[AdminWallets] Wallets response status:', walletsRes.status);
       const walletsRaw = await walletsRes.json();
       console.log('[AdminWallets] Raw wallets response:', JSON.stringify(walletsRaw));
-      console.log('[AdminWallets] Response type:', typeof walletsRaw);
-      console.log('[AdminWallets] Is array:', Array.isArray(walletsRaw));
-      console.log('[AdminWallets] Has wallets:', walletsRaw?.wallets);
-      console.log('[AdminWallets] Success flag:', walletsRaw?.success);
 
-      if (walletsRes.ok && walletsRaw?.success) {
-        const walletsData = Array.isArray(walletsRaw.wallets) ? walletsRaw.wallets : [];
-        console.log('[AdminWallets] Setting', walletsData.length, 'wallets');
-        setWallets(walletsData);
+      if (walletsRes.ok && walletsRaw?.success && Array.isArray(walletsRaw.wallets)) {
+        console.log('[AdminWallets] Setting', walletsRaw.wallets.length, 'wallets');
+        setWallets(walletsRaw.wallets);
       } else {
         console.log('[AdminWallets] Wallet API error:', walletsRaw?.message || 'Unknown');
         setWallets([]);
@@ -64,32 +61,32 @@ export default function AdminWallets() {
     }
   };
 
-  const getWallet = (symbol: string): Wallet => {
-    if (!Array.isArray(wallets)) return { _id: '', coinSymbol: symbol, address: '', qrCodeUrl: '' };
-    return wallets.find((w) => w.coinSymbol === symbol) || { _id: '', coinSymbol: symbol, address: '', qrCodeUrl: '' };
+  const getWallet = (symbol: string): Wallet | null => {
+    if (!Array.isArray(wallets)) return null;
+    return wallets.find((w) => w.symbol === symbol) || null;
   };
 
-  const saveWallet = async (symbol: string, address: string, qrCodeUrl: string) => {
-    console.log('[AdminWallets] Save request:', { symbol, address, qrCodeUrl });
+  const saveWallet = async (symbol: string, address: string, qrCodeImageUrl: string) => {
+    console.log('[AdminWallets] Save request:', { symbol, address, qrCodeImageUrl });
     setSaving(true);
     try {
       const response = await fetch('/api/admin/wallets', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         credentials: 'include',
-        body: JSON.stringify({ coinSymbol: symbol, address, qrCodeUrl }),
+        body: JSON.stringify({ symbol, address, qrCodeImageUrl }),
       });
 
       const data = await response.json();
       console.log('[AdminWallets] Save response:', JSON.stringify(data));
 
-      if (response.ok && data?.success) {
+      if (response.ok && data?.success && data?.wallet) {
         const updatedWallet = data.wallet;
         setWallets((prev) => {
           const arr = Array.isArray(prev) ? prev : [];
-          const exists = arr.find((w) => w.coinSymbol === symbol);
+          const exists = arr.find((w) => w.symbol === symbol);
           if (exists) {
-            return arr.map((w) => (w.coinSymbol === symbol ? updatedWallet : w));
+            return arr.map((w) => (w.symbol === symbol ? updatedWallet : w));
           }
           return [...arr, updatedWallet];
         });
@@ -163,7 +160,7 @@ export default function AdminWallets() {
                 key={coin.symbol}
                 coin={coin}
                 initialAddress={wallet?.address || ''}
-                initialQrCodeUrl={wallet?.qrCodeUrl || ''}
+                initialQrCodeUrl={wallet?.qrCodeImageUrl || ''}
                 onSave={saveWallet}
                 saving={saving}
               />
@@ -179,21 +176,21 @@ interface WalletFormProps {
   coin: any;
   initialAddress: string;
   initialQrCodeUrl: string;
-  onSave: (symbol: string, address: string, qrCodeUrl: string) => void;
+  onSave: (symbol: string, address: string, qrCodeImageUrl: string) => void;
   saving: boolean;
 }
 
 function WalletForm({ coin, initialAddress, initialQrCodeUrl, onSave, saving }: WalletFormProps) {
   const [address, setAddress] = useState(initialAddress);
-  const [qrCodeUrl, setQrCodeUrl] = useState(initialQrCodeUrl);
+  const [qrCodeImageUrl, setQrCodeImageUrl] = useState(initialQrCodeUrl);
   const [hasChanges, setHasChanges] = useState(false);
 
   useEffect(() => {
-    setHasChanges(address !== initialAddress || qrCodeUrl !== initialQrCodeUrl);
-  }, [address, qrCodeUrl, initialAddress, initialQrCodeUrl]);
+    setHasChanges(address !== initialAddress || qrCodeImageUrl !== initialQrCodeUrl);
+  }, [address, qrCodeImageUrl, initialAddress, initialQrCodeUrl]);
 
   const handleSave = () => {
-    onSave(coin.symbol, address, qrCodeUrl);
+    onSave(coin.symbol, address, qrCodeImageUrl);
     setHasChanges(false);
   };
 
@@ -205,7 +202,7 @@ function WalletForm({ coin, initialAddress, initialQrCodeUrl, onSave, saving }: 
           alt={coin.symbol}
           className="w-12 h-12 rounded-full"
           onError={(e) => {
-            (e.target as HTMLImageElement).src = `https://via.placeholder.com/48?text=${coin.symbol}`;
+            (e.target as HTMLImageElement).src = DEFAULT_COIN_ICON;
           }}
         />
         <div>
@@ -216,12 +213,12 @@ function WalletForm({ coin, initialAddress, initialQrCodeUrl, onSave, saving }: 
 
       <div className="grid md:grid-cols-2 gap-6">
         <div>
-          <label className="block text-sm text-gray-400 mb-2">Wallet Address</label>
+          <label className="block text-sm text-gray-400 mb-2">Wallet Address / Label / Note</label>
           <input
             type="text"
             value={address}
             onChange={(e) => setAddress(e.target.value)}
-            placeholder={`Enter ${coin.symbol} wallet address`}
+            placeholder="Enter receiving address, label, or note"
             className="w-full px-4 py-3 bg-gray-800/50 border border-gray-700 rounded-xl text-white placeholder-gray-500 focus:outline-none focus:border-cyan-500 transition-colors"
           />
         </div>
@@ -230,20 +227,20 @@ function WalletForm({ coin, initialAddress, initialQrCodeUrl, onSave, saving }: 
           <label className="block text-sm text-gray-400 mb-2">QR Code Image URL</label>
           <input
             type="text"
-            value={qrCodeUrl}
-            onChange={(e) => setQrCodeUrl(e.target.value)}
+            value={qrCodeImageUrl}
+            onChange={(e) => setQrCodeImageUrl(e.target.value)}
             placeholder="Paste QR code image URL"
             className="w-full px-4 py-3 bg-gray-800/50 border border-gray-700 rounded-xl text-white placeholder-gray-500 focus:outline-none focus:border-cyan-500 transition-colors"
           />
         </div>
       </div>
 
-      {qrCodeUrl && (
+      {qrCodeImageUrl && (
         <div className="mt-4">
           <p className="text-sm text-gray-400 mb-2">QR Code Preview</p>
           <div className="w-32 h-32 bg-white p-2 rounded-xl">
             <img
-              src={qrCodeUrl}
+              src={qrCodeImageUrl}
               alt="QR Code Preview"
               className="w-full h-full object-contain"
               onError={(e) => {
