@@ -3,10 +3,12 @@
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { useAuth } from '@/lib/useAuth';
+import { useState } from 'react';
 
 export default function Navbar() {
   const router = useRouter();
   const { user, isAuthenticated, logout, loading } = useAuth();
+  const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
 
   const handleLogout = async () => {
     await logout();
@@ -17,11 +19,27 @@ export default function Navbar() {
     <nav className="bg-gray-900/80 backdrop-blur-xl border-b border-gray-800 sticky top-0 z-50">
       <div className="max-w-7xl mx-auto px-4">
         <div className="flex items-center justify-between h-16">
+          {/* Logo */}
           <Link href="/" className="text-xl font-bold text-white">
             CryptoExchange
           </Link>
 
-          <div className="flex items-center gap-4">
+          {/* Mobile Menu Button */}
+          <button
+            onClick={() => setMobileMenuOpen(!mobileMenuOpen)}
+            className="md:hidden p-2 text-gray-400 hover:text-white"
+          >
+            <svg className="w-6 h-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+              {mobileMenuOpen ? (
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+              ) : (
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 6h16M4 12h16M4 18h16" />
+              )}
+            </svg>
+          </button>
+
+          {/* Desktop Navigation */}
+          <div className="hidden md:flex items-center gap-4">
             {loading ? (
               <div className="w-5 h-5 border-2 border-cyan-500 border-t-transparent rounded-full animate-spin" />
             ) : isAuthenticated ? (
@@ -39,12 +57,20 @@ export default function Navbar() {
                   My Orders
                 </Link>
                 {user?.role === 'admin' && (
-                  <Link
-                    href="/admin"
-                    className="px-4 py-2 text-sm text-cyan-400 hover:text-cyan-300 transition-colors"
-                  >
-                    Admin
-                  </Link>
+                  <>
+                    <Link
+                      href="/admin"
+                      className="px-4 py-2 text-sm text-cyan-400 hover:text-cyan-300 transition-colors"
+                    >
+                      Admin
+                    </Link>
+                    <Link
+                      href="/admin/p2p-settings"
+                      className="px-4 py-2 text-sm text-purple-400 hover:text-purple-300 transition-colors"
+                    >
+                      P2P Settings
+                    </Link>
+                  </>
                 )}
                 <span className="text-sm text-gray-400">{user?.name}</span>
                 <button
@@ -56,6 +82,12 @@ export default function Navbar() {
               </>
             ) : (
               <>
+                <Link
+                  href="/p2p"
+                  className="px-4 py-2 text-sm text-green-400 hover:text-green-300 transition-colors"
+                >
+                  P2P
+                </Link>
                 <Link
                   href="/login"
                   className="px-4 py-2 text-sm text-gray-300 hover:text-white transition-colors"
@@ -72,6 +104,79 @@ export default function Navbar() {
             )}
           </div>
         </div>
+
+        {/* Mobile Navigation */}
+        {mobileMenuOpen && (
+          <div className="md:hidden py-4 border-t border-gray-800">
+            <div className="flex flex-col gap-2">
+              <Link
+                href="/p2p"
+                className="px-4 py-2 text-sm text-green-400 hover:text-green-300 transition-colors"
+                onClick={() => setMobileMenuOpen(false)}
+              >
+                P2P
+              </Link>
+              {isAuthenticated ? (
+                <>
+                  <Link
+                    href="/my-orders"
+                    className="px-4 py-2 text-sm text-gray-300 hover:text-white transition-colors"
+                    onClick={() => setMobileMenuOpen(false)}
+                  >
+                    My Orders
+                  </Link>
+                  {user?.role === 'admin' && (
+                    <>
+                      <Link
+                        href="/admin"
+                        className="px-4 py-2 text-sm text-cyan-400 hover:text-cyan-300 transition-colors"
+                        onClick={() => setMobileMenuOpen(false)}
+                      >
+                        Admin
+                      </Link>
+                      <Link
+                        href="/admin/p2p-settings"
+                        className="px-4 py-2 text-sm text-purple-400 hover:text-purple-300 transition-colors"
+                        onClick={() => setMobileMenuOpen(false)}
+                      >
+                        P2P Settings
+                      </Link>
+                    </>
+                  )}
+                  <div className="flex items-center justify-between mt-2 pt-2 border-t border-gray-800">
+                    <span className="text-sm text-gray-400">{user?.name}</span>
+                    <button
+                      onClick={() => {
+                        handleLogout();
+                        setMobileMenuOpen(false);
+                      }}
+                      className="px-4 py-2 text-sm bg-gray-800 hover:bg-gray-700 text-gray-300 rounded-lg transition-colors"
+                    >
+                      Logout
+                    </button>
+                  </div>
+                </>
+              ) : (
+                <>
+                  <Link
+                    href="/login"
+                    className="px-4 py-2 text-sm text-gray-300 hover:text-white transition-colors"
+                    onClick={() => setMobileMenuOpen(false)}
+                  >
+                    Login
+                  </Link>
+                  <Link
+                    href="/register"
+                    className="px-4 py-2 text-sm bg-cyan-500 hover:bg-cyan-400 text-white rounded-lg transition-colors inline-block text-center"
+                    onClick={() => setMobileMenuOpen(false)}
+                  >
+                    Sign Up
+                  </Link>
+                </>
+              )}
+            </div>
+          </div>
+        )}
       </div>
     </nav>
   );
