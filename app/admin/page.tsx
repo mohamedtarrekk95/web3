@@ -1,12 +1,32 @@
 'use client';
 
+import { useEffect, useState } from 'react';
+import { useRouter } from 'next/navigation';
 import { useAuth } from '@/lib/useAuth';
-import Link from 'next/link';
 
 export default function AdminPage() {
-  const { user, isAuthenticated, loading } = useAuth();
+  const router = useRouter();
+  const { user, isAuthenticated, loading, logout } = useAuth();
+  const [initialized, setInitialized] = useState(false);
 
-  if (loading) {
+  useEffect(() => {
+    setInitialized(true);
+  }, []);
+
+  useEffect(() => {
+    if (!initialized || loading) return;
+
+    if (!isAuthenticated) {
+      router.replace('/login');
+    }
+  }, [initialized, loading, isAuthenticated, router]);
+
+  const handleLogout = async () => {
+    await logout();
+    router.push('/');
+  };
+
+  if (!initialized || loading) {
     return (
       <div className="min-h-screen flex items-center justify-center bg-gray-900">
         <div className="w-8 h-8 border-2 border-cyan-500 border-t-transparent rounded-full animate-spin" />
@@ -15,26 +35,23 @@ export default function AdminPage() {
   }
 
   if (!isAuthenticated) {
-    return (
-      <div className="min-h-screen flex items-center justify-center bg-gray-900">
-        <div className="text-center">
-          <p className="text-gray-400 mb-4">Please log in to access admin features</p>
-          <Link href="/login" className="text-cyan-500 hover:text-cyan-400">
-            Go to Login
-          </Link>
-        </div>
-      </div>
-    );
+    return null;
   }
 
-  // Show admin panel to all authenticated users
-  // But admin features inside are role-gated
   return (
     <div className="min-h-screen bg-gray-900 p-4 md:p-8">
       <div className="max-w-6xl mx-auto">
-        <header className="mb-8">
-          <h1 className="text-2xl font-bold text-white">Admin Panel</h1>
-          <p className="text-gray-400 mt-1">Welcome, {user?.name}</p>
+        <header className="flex items-center justify-between mb-8">
+          <div>
+            <h1 className="text-2xl font-bold text-white">Admin Panel</h1>
+            <p className="text-gray-400 mt-1">Welcome, {user?.name}</p>
+          </div>
+          <button
+            onClick={handleLogout}
+            className="px-4 py-2 bg-red-500/20 border border-red-500/50 rounded-xl text-red-400 hover:bg-red-500/30 transition-colors"
+          >
+            Logout
+          </button>
         </header>
 
         <div className="grid md:grid-cols-3 gap-6">
@@ -60,7 +77,6 @@ export default function AdminPage() {
           />
         </div>
 
-        {/* Role-specific admin content - only visible to admins */}
         {user?.role === 'admin' && (
           <div className="mt-8 p-6 bg-cyan-500/10 border border-cyan-500/30 rounded-xl">
             <h2 className="text-lg font-semibold text-cyan-400 mb-2">Admin Features</h2>
@@ -95,13 +111,13 @@ function AdminCard({
   icon: React.ReactNode;
 }) {
   return (
-    <Link
+    <a
       href={href}
       className="bg-gray-800/80 border border-gray-700 rounded-xl p-6 hover:border-cyan-500/50 transition-colors"
     >
       <div className="mb-4">{icon}</div>
       <h3 className="text-lg font-semibold text-white mb-1">{title}</h3>
       <p className="text-gray-400 text-sm">{description}</p>
-    </Link>
+    </a>
   );
 }
