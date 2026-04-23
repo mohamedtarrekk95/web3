@@ -75,6 +75,7 @@ export default function CheckoutPage() {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
+          type: 'exchange',
           fromCoin: checkoutData.fromCoin?.symbol,
           toCoin: checkoutData.toCoin?.symbol,
           amountSent: parseFloat(checkoutData.amount),

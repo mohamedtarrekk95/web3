@@ -24,7 +24,6 @@ export async function PATCH(
 
     console.log('[Admin Order Update] Order:', id, 'New status:', status, 'Note:', adminNote);
 
-    // Validate status - support old values (completed/cancelled) and new (accepted/rejected)
     const validStatuses = ['pending', 'accepted', 'rejected', 'completed', 'cancelled'];
     if (!status || !validStatuses.includes(status)) {
       return NextResponse.json(
@@ -33,7 +32,6 @@ export async function PATCH(
       );
     }
 
-    // Build update object
     const updateData: any = { status };
     if (adminNote !== undefined) {
       updateData.adminNote = adminNote;
@@ -57,6 +55,7 @@ export async function PATCH(
       success: true,
       order: {
         orderId: order.orderId,
+        type: order.type,
         fromCoin: order.fromCoin,
         toCoin: order.toCoin,
         amountSent: order.amountSent,
@@ -65,6 +64,9 @@ export async function PATCH(
         receivingAddress: order.receivingAddress || '',
         status: order.status,
         adminNote: order.adminNote || '',
+        paymentMethod: order.paymentMethod || '',
+        telegramUsername: order.telegramUsername || '',
+        txid: order.txid || '',
         createdAt: order.createdAt,
       }
     });

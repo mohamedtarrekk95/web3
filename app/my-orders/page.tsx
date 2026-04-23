@@ -1,10 +1,12 @@
 'use client';
 
 import { useEffect, useState } from 'react';
+import { useRouter } from 'next/navigation';
 import { ProtectedRoute } from '@/components/ProtectedRoute';
 
 interface Order {
   orderId: string;
+  type: 'exchange' | 'p2p_buy' | 'p2p_sell';
   fromCoin: string;
   toCoin: string;
   amountSent: number;
@@ -13,10 +15,13 @@ interface Order {
   receivingAddress: string;
   status: 'pending' | 'accepted' | 'rejected' | 'completed' | 'cancelled';
   adminNote: string;
+  paymentMethod: string;
+  telegramUsername: string;
   createdAt: string;
 }
 
 function OrdersContent() {
+  const router = useRouter();
   const [orders, setOrders] = useState<Order[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
@@ -65,6 +70,26 @@ function OrdersContent() {
     }
   };
 
+  const getTypeBadge = (type: string) => {
+    switch (type) {
+      case 'p2p_buy':
+        return 'bg-cyan-500/20 text-cyan-400 border-cyan-500';
+      case 'p2p_sell':
+        return 'bg-green-500/20 text-green-400 border-green-500';
+      default:
+        return 'bg-gray-500/20 text-gray-400 border-gray-500';
+    }
+  };
+
+  const getTypeLabel = (type: string) => {
+    switch (type) {
+      case 'p2p_buy': return 'P2P Buy';
+      case 'p2p_sell': return 'P2P Sell';
+      case 'exchange': return 'Exchange';
+      default: return type;
+    }
+  };
+
   if (loading) {
     return (
       <div className="min-h-screen flex items-center justify-center bg-gray-900">
@@ -78,6 +103,12 @@ function OrdersContent() {
       <div className="max-w-5xl mx-auto px-4">
         <div className="flex items-center justify-between mb-8">
           <h1 className="text-2xl font-bold text-white">My Orders</h1>
+          <a
+            href="/p2p"
+            className="px-4 py-2 bg-cyan-500 hover:bg-cyan-400 text-white text-sm font-medium rounded-lg transition-colors"
+          >
+            New P2P Order
+          </a>
         </div>
 
         {error && (
@@ -98,7 +129,8 @@ function OrdersContent() {
             {orders.map((order) => (
               <div
                 key={order.orderId}
-                className="bg-gray-800/80 border border-gray-700 rounded-xl p-6"
+                className="bg-gray-800/80 border border-gray-700 rounded-xl p-6 hover:border-gray-600 transition-colors cursor-pointer"
+                onClick={() => router.push(`/orders/${order.orderId}`)}
               >
                 {/* Order Header */}
                 <div className="flex items-center justify-between mb-4">
@@ -106,6 +138,12 @@ function OrdersContent() {
                     <div>
                       <div className="text-xs text-gray-400 mb-1">Order ID</div>
                       <div className="text-cyan-500 font-mono text-sm">{order.orderId}</div>
+                    </div>
+                    <div>
+                      <div className="text-xs text-gray-400 mb-1">Type</div>
+                      <span className={`px-2 py-0.5 rounded-full text-xs font-medium border ${getTypeBadge(order.type)}`}>
+                        {getTypeLabel(order.type)}
+                      </span>
                     </div>
                     <div>
                       <div className="text-xs text-gray-400 mb-1">Pair</div>
@@ -132,6 +170,14 @@ function OrdersContent() {
                     <div className="text-gray-300 text-sm">{formatDate(order.createdAt)}</div>
                   </div>
                 </div>
+
+                {/* Payment Method (P2P orders) */}
+                {order.type !== 'exchange' && order.paymentMethod && (
+                  <div className="mb-4 p-3 bg-gray-900/50 rounded-lg">
+                    <div className="text-xs text-gray-400 mb-1">Payment Method</div>
+                    <div className="text-white text-sm">{order.paymentMethod}</div>
+                  </div>
+                )}
 
                 {/* Receiving Address */}
                 {order.receivingAddress && (

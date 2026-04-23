@@ -7,7 +7,6 @@ export async function GET(
   request: Request,
   { params }: { params: Promise<{ id: string }> }
 ) {
-  // Rate limiting
   const ip = request.headers.get('x-forwarded-for') || 'unknown';
   const rateLimitResult = apiRateLimiter(ip);
 
@@ -22,7 +21,6 @@ export async function GET(
     await connectDB();
     const { id } = await params;
 
-    // Validate ID format (UUID)
     if (!id || id.length < 8) {
       return NextResponse.json({ error: 'Invalid order ID' }, { status: 400 });
     }
@@ -33,7 +31,22 @@ export async function GET(
       return NextResponse.json({ error: 'Order not found' }, { status: 404 });
     }
 
-    return NextResponse.json(order);
+    return NextResponse.json({
+      orderId: order.orderId,
+      type: order.type,
+      fromCoin: order.fromCoin,
+      toCoin: order.toCoin,
+      amountSent: order.amountSent,
+      amountReceived: order.amountReceived,
+      walletAddress: order.walletAddress,
+      receivingAddress: order.receivingAddress || '',
+      status: order.status,
+      adminNote: order.adminNote || '',
+      paymentMethod: order.paymentMethod || '',
+      telegramUsername: order.telegramUsername || '',
+      txid: order.txid || '',
+      createdAt: order.createdAt,
+    });
   } catch (error) {
     console.error('Order fetch error:', error);
     return NextResponse.json({ error: 'Failed to fetch order' }, { status: 500 });

@@ -22,10 +22,23 @@ export async function POST(request: NextRequest) {
   try {
     await connectDB();
     const body = await request.json();
-    const { fromCoin, toCoin, amountSent, amountReceived, receivingAddress } = body;
+    const {
+      type,
+      fromCoin,
+      toCoin,
+      amountSent,
+      amountReceived,
+      receivingAddress,
+      paymentMethod,
+      telegramUsername,
+    } = body;
 
-    if (!fromCoin || !toCoin || !amountSent || !amountReceived) {
+    if (!type || !fromCoin || !toCoin || !amountSent || !amountReceived) {
       return NextResponse.json({ error: 'Missing required fields' }, { status: 400 });
+    }
+
+    if (!['exchange', 'p2p_buy', 'p2p_sell'].includes(type)) {
+      return NextResponse.json({ error: 'Invalid order type' }, { status: 400 });
     }
 
     if (typeof amountSent !== 'number' || typeof amountReceived !== 'number' ||
@@ -33,12 +46,16 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'Invalid amounts' }, { status: 400 });
     }
 
-    const wallet = await Wallet.findOne({ symbol: fromCoin.toUpperCase() });
-    const walletAddress = wallet?.address || 'Pending';
+    let walletAddress = 'Pending';
+    if (type === 'exchange') {
+      const wallet = await Wallet.findOne({ symbol: fromCoin.toUpperCase() });
+      walletAddress = wallet?.address || 'Pending';
+    }
 
     const order = new Order({
       orderId: uuidv4(),
       userId: new mongoose.Types.ObjectId(user.userId),
+      type,
       fromCoin: fromCoin.toUpperCase(),
       toCoin: toCoin.toUpperCase(),
       amountSent,
@@ -47,12 +64,16 @@ export async function POST(request: NextRequest) {
       receivingAddress: receivingAddress || '',
       status: 'pending',
       adminNote: '',
+      paymentMethod: paymentMethod || '',
+      telegramUsername: telegramUsername || '',
+      txid: '',
     });
 
     await order.save();
 
     return NextResponse.json({
       orderId: order.orderId,
+      type: order.type,
       fromCoin: order.fromCoin,
       toCoin: order.toCoin,
       amountSent: order.amountSent,
@@ -61,6 +82,8 @@ export async function POST(request: NextRequest) {
       receivingAddress: order.receivingAddress,
       status: order.status,
       adminNote: order.adminNote,
+      paymentMethod: order.paymentMethod,
+      telegramUsername: order.telegramUsername,
       createdAt: order.createdAt,
     });
   } catch (error) {
@@ -86,6 +109,7 @@ export async function GET(request: NextRequest) {
       success: true,
       orders: orders.map((o) => ({
         orderId: o.orderId,
+        type: o.type,
         fromCoin: o.fromCoin,
         toCoin: o.toCoin,
         amountSent: o.amountSent,
@@ -94,6 +118,8 @@ export async function GET(request: NextRequest) {
         receivingAddress: o.receivingAddress || '',
         status: o.status,
         adminNote: o.adminNote || '',
+        paymentMethod: o.paymentMethod || '',
+        telegramUsername: o.telegramUsername || '',
         createdAt: o.createdAt,
       })),
     });

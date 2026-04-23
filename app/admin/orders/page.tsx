@@ -6,6 +6,7 @@ import { AdminRoute } from '@/components/AdminRoute';
 
 interface OrderData {
   orderId: string;
+  type: 'exchange' | 'p2p_buy' | 'p2p_sell';
   fromCoin: string;
   toCoin: string;
   amountSent: number;
@@ -14,15 +15,19 @@ interface OrderData {
   receivingAddress: string;
   status: string;
   adminNote: string;
+  paymentMethod: string;
+  telegramUsername: string;
+  txid: string;
   createdAt: string;
 }
 
 export default function AdminOrders() {
-  const { user, isAuthenticated, loading } = useAuth();
+  const { isAuthenticated, loading } = useAuth();
   const [orders, setOrders] = useState<OrderData[]>([]);
   const [ordersLoading, setOrdersLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [filter, setFilter] = useState<'all' | 'pending' | 'accepted' | 'rejected' | 'completed'>('all');
+  const [typeFilter, setTypeFilter] = useState<'all' | 'exchange' | 'p2p_buy' | 'p2p_sell'>('all');
   const [updating, setUpdating] = useState<string | null>(null);
   const [adminNotes, setAdminNotes] = useState<Record<string, string>>({});
 
@@ -48,7 +53,6 @@ export default function AdminOrders() {
         setOrders(data.orders);
         setError(null);
 
-        // Initialize admin notes from existing orders
         const notes: Record<string, string> = {};
         data.orders.forEach((o: OrderData) => {
           if (o.adminNote) notes[o.orderId] = o.adminNote;
@@ -109,8 +113,9 @@ export default function AdminOrders() {
   const safeOrders = Array.isArray(orders) ? orders : [];
 
   const filteredOrders = safeOrders.filter((order) => {
-    if (filter === 'all') return true;
-    return order.status === filter;
+    if (filter !== 'all' && order.status !== filter) return false;
+    if (typeFilter !== 'all' && order.type !== typeFilter) return false;
+    return true;
   });
 
   const formatNumber = (num: number) => {
@@ -132,6 +137,37 @@ export default function AdminOrders() {
       default:
         return 'bg-yellow-500/20 text-yellow-400 border-yellow-500';
     }
+  };
+
+  const getTypeBadge = (type: string) => {
+    switch (type) {
+      case 'p2p_buy':
+        return 'bg-cyan-500/20 text-cyan-400 border-cyan-500';
+      case 'p2p_sell':
+        return 'bg-green-500/20 text-green-400 border-green-500';
+      default:
+        return 'bg-gray-500/20 text-gray-400 border-gray-500';
+    }
+  };
+
+  const getTypeLabel = (type: string) => {
+    switch (type) {
+      case 'p2p_buy': return 'P2P Buy';
+      case 'p2p_sell': return 'P2P Sell';
+      case 'exchange': return 'Exchange';
+      default: return type;
+    }
+  };
+
+  const getPaymentMethodLabel = (code: string) => {
+    const methods: Record<string, string> = {
+      vodafone_cash: 'Vodafone Cash',
+      fawry: 'Fawry',
+      bank_transfer: 'Bank Transfer',
+      instapay: 'Instapay',
+      cash: 'Cash',
+    };
+    return methods[code] || code;
   };
 
   if (loading) {
@@ -160,11 +196,21 @@ export default function AdminOrders() {
           </div>
           <div className="flex items-center gap-4">
             <select
+              value={typeFilter}
+              onChange={(e) => setTypeFilter(e.target.value as any)}
+              className="px-4 py-2 bg-gray-800 border border-gray-700 rounded-xl text-white focus:outline-none focus:border-cyan-500"
+            >
+              <option value="all">All Types</option>
+              <option value="exchange">Exchange</option>
+              <option value="p2p_buy">P2P Buy</option>
+              <option value="p2p_sell">P2P Sell</option>
+            </select>
+            <select
               value={filter}
               onChange={(e) => setFilter(e.target.value as any)}
               className="px-4 py-2 bg-gray-800 border border-gray-700 rounded-xl text-white focus:outline-none focus:border-cyan-500"
             >
-              <option value="all">All Orders</option>
+              <option value="all">All Status</option>
               <option value="pending">Pending</option>
               <option value="accepted">Accepted</option>
               <option value="rejected">Rejected</option>
@@ -175,6 +221,12 @@ export default function AdminOrders() {
               className="px-4 py-2 bg-gray-800 border border-gray-700 rounded-xl text-white hover:border-cyan-500 transition-colors"
             >
               Manage Wallets
+            </a>
+            <a
+              href="/admin/settings"
+              className="px-4 py-2 bg-gray-800 border border-gray-700 rounded-xl text-white hover:border-cyan-500 transition-colors"
+            >
+              P2P Settings
             </a>
           </div>
         </header>
@@ -198,9 +250,17 @@ export default function AdminOrders() {
               >
                 {/* Order Header */}
                 <div className="flex items-start justify-between mb-4">
-                  <div>
-                    <div className="text-sm text-gray-400 mb-1">Order ID</div>
-                    <div className="text-white font-mono">{order.orderId}</div>
+                  <div className="flex items-center gap-4">
+                    <div>
+                      <div className="text-sm text-gray-400 mb-1">Order ID</div>
+                      <div className="text-white font-mono">{order.orderId}</div>
+                    </div>
+                    <div>
+                      <div className="text-sm text-gray-400 mb-1">Type</div>
+                      <span className={`px-2 py-1 rounded-full text-xs font-medium border ${getTypeBadge(order.type)}`}>
+                        {getTypeLabel(order.type)}
+                      </span>
+                    </div>
                   </div>
                   <span className={`px-3 py-1 rounded-full text-xs font-medium border ${getStatusBadge(order.status)}`}>
                     {order.status || 'pending'}
@@ -226,6 +286,26 @@ export default function AdminOrders() {
                     <div className="text-cyan-400 font-medium">{formatNumber(order.amountReceived || 0)}</div>
                   </div>
                 </div>
+
+                {/* P2P Specific Fields */}
+                {order.type !== 'exchange' && (
+                  <div className="grid md:grid-cols-3 gap-4 mb-4 p-4 bg-gray-800/50 rounded-xl">
+                    <div>
+                      <div className="text-xs text-gray-400 mb-1">Payment Method</div>
+                      <div className="text-white font-medium">{getPaymentMethodLabel(order.paymentMethod)}</div>
+                    </div>
+                    <div>
+                      <div className="text-xs text-gray-400 mb-1">Telegram</div>
+                      <div className="text-white font-medium">@{order.telegramUsername || 'N/A'}</div>
+                    </div>
+                    {order.type === 'p2p_sell' && (
+                      <div>
+                        <div className="text-xs text-gray-400 mb-1">TXID</div>
+                        <div className="text-green-400 font-mono text-sm break-all">{order.txid || 'Not submitted'}</div>
+                      </div>
+                    )}
+                  </div>
+                )}
 
                 {/* Address Section */}
                 <div className="grid md:grid-cols-2 gap-4 mb-4 p-4 bg-gray-800/50 rounded-xl">

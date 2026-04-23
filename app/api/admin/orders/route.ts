@@ -22,6 +22,7 @@ export async function GET() {
       success: true,
       orders: orders.map((o) => ({
         orderId: o.orderId,
+        type: o.type,
         fromCoin: o.fromCoin,
         toCoin: o.toCoin,
         amountSent: o.amountSent,
@@ -30,6 +31,9 @@ export async function GET() {
         receivingAddress: o.receivingAddress || '',
         status: o.status,
         adminNote: o.adminNote || '',
+        paymentMethod: o.paymentMethod || '',
+        telegramUsername: o.telegramUsername || '',
+        txid: o.txid || '',
         createdAt: o.createdAt,
       })),
     });
