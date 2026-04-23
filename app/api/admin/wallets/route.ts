@@ -1,4 +1,4 @@
-import { NextResponse } from 'next/server';
+import { NextRequest, NextResponse } from 'next/server';
 import jwt from 'jsonwebtoken';
 import connectDB from '@/lib/mongodb';
 import Wallet from '@/lib/models/Wallet';
@@ -11,12 +11,15 @@ if (!JWT_SECRET) {
 }
 
 function verifyToken(request: Request) {
-  const authHeader = request.headers.get('Authorization');
-  if (!authHeader || !authHeader.startsWith('Bearer ')) {
-    throw new Error('Unauthorized');
-  }
-  const token = authHeader.split(' ')[1];
-  return jwt.verify(token, JWT_SECRET) as { username: string; role: string };
+  // Read from cookie instead of Authorization header (frontend uses credentials: 'include')
+  const cookieHeader = request.headers.get('cookie');
+  if (!cookieHeader) throw new Error('Unauthorized');
+
+  const match = cookieHeader.match(/auth_token=([^;]+)/);
+  if (!match) throw new Error('Unauthorized');
+
+  const token = match[1];
+  return jwt.verify(token, JWT_SECRET) as { userId: string; email: string; role: string };
 }
 
 export async function GET(request: Request) {

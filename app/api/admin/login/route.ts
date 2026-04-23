@@ -1,4 +1,4 @@
-import { NextResponse } from 'next/server';
+import { NextRequest, NextResponse } from 'next/server';
 import bcrypt from 'bcryptjs';
 import jwt from 'jsonwebtoken';
 import connectDB from '@/lib/mongodb';
@@ -11,7 +11,9 @@ if (!JWT_SECRET) {
   throw new Error('JWT_SECRET environment variable is required');
 }
 
-export async function POST(request: Request) {
+const ADMIN_COOKIE = 'admin_token';
+
+export async function POST(request: NextRequest) {
   // Rate limiting
   const ip = request.headers.get('x-forwarded-for') || 'unknown';
   const rateLimitResult = adminRateLimiter(ip);
@@ -56,7 +58,15 @@ export async function POST(request: Request) {
 
     const token = jwt.sign({ username, role: 'admin' }, JWT_SECRET, { expiresIn: '24h' });
 
-    return NextResponse.json({ token, username });
+    const response = NextResponse.json({ success: true, username });
+    response.cookies.set(ADMIN_COOKIE, token, {
+      httpOnly: true,
+      secure: process.env.NODE_ENV === 'production',
+      sameSite: 'lax',
+      path: '/',
+      maxAge: 60 * 60 * 24, // 24 hours
+    });
+    return response;
   } catch (error) {
     console.error('Login error:', error);
     return NextResponse.json({ error: 'Login failed' }, { status: 500 });

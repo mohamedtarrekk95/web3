@@ -7,7 +7,10 @@ export function middleware(request: NextRequest) {
 
   // Protect /api/admin routes - verify JWT AND role
   if (pathname.startsWith('/api/admin')) {
-    const token = request.cookies.get('auth_token')?.value;
+    // Check both auth_token (user) and admin_token cookies
+    const authToken = request.cookies.get('auth_token')?.value;
+    const adminToken = request.cookies.get('admin_token')?.value;
+    const token = adminToken || authToken;
 
     if (!token) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });

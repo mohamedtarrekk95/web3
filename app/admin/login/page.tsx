@@ -25,7 +25,6 @@ export default function AdminLogin() {
       const data = await response.json();
 
       if (response.ok) {
-        localStorage.setItem('adminToken', data.token);
         router.push('/admin/orders');
       } else {
         setError(data.error || 'Login failed');
