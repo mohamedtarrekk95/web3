@@ -1,8 +1,8 @@
 'use client';
 
 import { useEffect, useState } from 'react';
-import { useRouter } from 'next/navigation';
 import { useAuth } from '@/lib/useAuth';
+import { ProtectedRoute } from '@/components/ProtectedRoute';
 
 interface Order {
   orderId: string;
@@ -15,23 +15,14 @@ interface Order {
   createdAt: string;
 }
 
-export default function MyOrdersPage() {
-  const router = useRouter();
-  const { user, loading: authLoading, isAuthenticated } = useAuth();
+function OrdersContent() {
+  const { user } = useAuth();
   const [orders, setOrders] = useState<Order[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
 
   useEffect(() => {
-    if (!authLoading && !isAuthenticated) {
-      router.push('/login');
-    }
-  }, [authLoading, isAuthenticated, router]);
-
-  useEffect(() => {
     async function fetchOrders() {
-      if (!isAuthenticated) return;
-
       try {
         const res = await fetch('/api/orders');
         if (res.ok) {
@@ -48,7 +39,7 @@ export default function MyOrdersPage() {
     }
 
     fetchOrders();
-  }, [isAuthenticated]);
+  }, []);
 
   const formatNumber = (num: number, decimals = 6) => {
     if (num < 0.00001) return num.toExponential(4);
@@ -70,16 +61,12 @@ export default function MyOrdersPage() {
     }
   };
 
-  if (authLoading || loading) {
+  if (loading) {
     return (
       <div className="min-h-screen flex items-center justify-center bg-gray-900">
         <div className="w-8 h-8 border-2 border-cyan-500 border-t-transparent rounded-full animate-spin" />
       </div>
     );
-  }
-
-  if (!isAuthenticated) {
-    return null;
   }
 
   return (
@@ -141,5 +128,13 @@ export default function MyOrdersPage() {
         )}
       </div>
     </div>
+  );
+}
+
+export default function MyOrdersPage() {
+  return (
+    <ProtectedRoute requiredRole="user" redirectTo="/login">
+      <OrdersContent />
+    </ProtectedRoute>
   );
 }

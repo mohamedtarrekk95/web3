@@ -1,16 +1,25 @@
 'use client';
 
-import { useState } from 'react';
-import { useRouter } from 'next/navigation';
+import { useState, useEffect } from 'react';
+import { useRouter, useSearchParams } from 'next/navigation';
 import Link from 'next/link';
 import { useAuth } from '@/lib/useAuth';
 
 export default function LoginPage() {
   const router = useRouter();
-  const { login, loading } = useAuth();
+  const searchParams = useSearchParams();
+  const { login, loading, isAuthenticated } = useAuth();
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [error, setError] = useState('');
+
+  // If already authenticated, redirect away from login
+  useEffect(() => {
+    if (!loading && isAuthenticated) {
+      const returnUrl = searchParams.get('returnUrl');
+      router.replace(returnUrl || '/');
+    }
+  }, [loading, isAuthenticated, router, searchParams]);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -18,7 +27,8 @@ export default function LoginPage() {
 
     const result = await login(email, password);
     if (result.success) {
-      router.push('/');
+      const returnUrl = searchParams.get('returnUrl');
+      router.replace(returnUrl || '/');
     } else {
       setError(result.error || 'Login failed');
     }

@@ -1,19 +1,25 @@
 'use client';
 
-import { useEffect, useCallback } from 'react';
+import { useEffect, useCallback, useRef } from 'react';
 import { useAuthStore } from '@/store/authStore';
 
 export function useAuth() {
-  const { user, loading, setUser, setLoading, logout } = useAuthStore();
+  const { user, loading, setUser, setLoading, logout: ZustandLogout } = useAuthStore();
+  const checkAuthRef = useRef<(() => Promise<void>) | null>(null);
 
   // Check if user is authenticated
   const checkAuth = useCallback(async () => {
     setLoading(true);
     try {
       const res = await fetch('/api/auth/me');
-      if (res.ok) {
-        const data = await res.json();
-        setUser(data.user);
+      const data = await res.json();
+      if (data.authenticated && data.user) {
+        setUser({
+          userId: data.user.userId,
+          email: data.user.email,
+          name: data.user.name,
+          role: data.user.role || 'user',
+        });
       } else {
         setUser(null);
       }
@@ -21,6 +27,8 @@ export function useAuth() {
       setUser(null);
     }
   }, [setUser, setLoading]);
+
+  checkAuthRef.current = checkAuth;
 
   // Login
   const login = useCallback(async (email: string, password: string) => {
@@ -32,11 +40,16 @@ export function useAuth() {
       });
       const data = await res.json();
       if (res.ok) {
-        setUser({ userId: data.userId, email: data.email, name: data.name, role: data.role || 'user' });
+        setUser({
+          userId: data.userId,
+          email: data.email,
+          name: data.name,
+          role: data.role || 'user',
+        });
         return { success: true };
       }
       return { success: false, error: data.error };
-    } catch (error) {
+    } catch {
       return { success: false, error: 'Login failed' };
     }
   }, [setUser]);
@@ -60,25 +73,28 @@ export function useAuth() {
   }, []);
 
   // Logout
-  const performLogout = useCallback(async () => {
+  const logout = useCallback(async () => {
     try {
       await fetch('/api/auth/logout', { method: 'POST' });
     } finally {
-      logout();
+      ZustandLogout();
     }
-  }, [logout]);
+  }, [ZustandLogout]);
 
-  // Check auth on mount
+  // Check auth on mount - only once
   useEffect(() => {
-    checkAuth();
-  }, [checkAuth]);
+    if (checkAuthRef.current) {
+      checkAuthRef.current();
+    }
+  }, []);
 
   return {
     user,
     loading,
     login,
     register,
-    logout: performLogout,
+    logout,
     isAuthenticated: !!user,
+    isAdmin: user?.role === 'admin',
   };
 }
