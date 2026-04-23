@@ -1,17 +1,20 @@
 'use client';
 
-import { useEffect, useCallback, useRef } from 'react';
+import { useEffect, useCallback, useRef, useState } from 'react';
 import { useAuthStore } from '@/store/authStore';
 
 export function useAuth() {
-  const { user, loading, setUser, setLoading, logout: ZustandLogout } = useAuthStore();
+  const { user, loading, hydrated, setUser, setLoading, setHydrated, logout: ZustandLogout } = useAuthStore();
+  const [hydratedLoading, setHydratedLoading] = useState(true);
   const checkAuthRef = useRef<(() => Promise<void>) | null>(null);
 
   // Check if user is authenticated
   const checkAuth = useCallback(async () => {
     setLoading(true);
     try {
-      const res = await fetch('/api/auth/me');
+      const res = await fetch('/api/auth/me', {
+        credentials: 'include',
+      });
       const data = await res.json();
       if (data.authenticated && data.user) {
         setUser({
@@ -30,12 +33,28 @@ export function useAuth() {
 
   checkAuthRef.current = checkAuth;
 
+  // Handle hydration - wait for store to be ready
+  useEffect(() => {
+    // Mark as hydrated after mount
+    setHydrated();
+    setHydratedLoading(false);
+  }, [setHydrated]);
+
+  // Check auth on mount AFTER hydration
+  useEffect(() => {
+    if (!hydrated) return;
+    if (checkAuthRef.current) {
+      checkAuthRef.current();
+    }
+  }, [hydrated]);
+
   // Login
   const login = useCallback(async (email: string, password: string) => {
     try {
       const res = await fetch('/api/auth/login', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
         body: JSON.stringify({ email, password }),
       });
       const data = await res.json();
@@ -60,6 +79,7 @@ export function useAuth() {
       const res = await fetch('/api/auth/register', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
         body: JSON.stringify({ email, password, name }),
       });
       const data = await res.json();
@@ -75,22 +95,22 @@ export function useAuth() {
   // Logout
   const logout = useCallback(async () => {
     try {
-      await fetch('/api/auth/logout', { method: 'POST' });
+      await fetch('/api/auth/logout', {
+        method: 'POST',
+        credentials: 'include',
+      });
     } finally {
       ZustandLogout();
     }
   }, [ZustandLogout]);
 
-  // Check auth on mount - only once
-  useEffect(() => {
-    if (checkAuthRef.current) {
-      checkAuthRef.current();
-    }
-  }, []);
+  // Combined loading state - true while hydrating OR checking auth
+  const isLoading = hydratedLoading || loading;
 
   return {
     user,
-    loading,
+    loading: isLoading,
+    hydrated,
     login,
     register,
     logout,
