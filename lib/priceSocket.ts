@@ -52,14 +52,32 @@ class PriceSocket {
   // Live price map - updated on every WebSocket message
   private livePrices: Map<string, { price: number; change24h: number; timestamp: number }> = new Map();
 
+  // USDT is always 1.0 - stablecoin, no WebSocket stream needed
+  private readonly USDT_PRICE = 1.0;
+  private readonly USDT_SYMBOL = 'USDT';
+
   // Last known prices for fallback when disconnected
   private fallbackPrices: Map<string, number> = new Map();
+
+  constructor() {
+    // Pre-populate USDT as it's always 1.0
+    this.livePrices.set(this.USDT_SYMBOL, {
+      price: this.USDT_PRICE,
+      change24h: 0,
+      timestamp: Date.now(),
+    });
+    this.fallbackPrices.set(this.USDT_SYMBOL, this.USDT_PRICE);
+  }
 
   getState(): ConnectionState {
     return { ...this.state };
   }
 
   getLivePrice(symbol: string): number | null {
+    // USDT is always 1.0 - no WebSocket stream needed
+    if (symbol === this.USDT_SYMBOL || symbol === 'USDTUSDT') {
+      return this.USDT_PRICE;
+    }
     const data = this.livePrices.get(symbol);
     return data?.price ?? null;
   }
@@ -69,11 +87,30 @@ class PriceSocket {
     for (const [symbol, data] of this.livePrices.entries()) {
       result[symbol] = data.price;
     }
+    // Always include USDT at 1.0
+    result[this.USDT_SYMBOL] = this.USDT_PRICE;
     return result;
   }
 
   getFallbackPrice(symbol: string): number | null {
+    if (symbol === this.USDT_SYMBOL || symbol === 'USDTUSDT') {
+      return this.USDT_PRICE;
+    }
     return this.fallbackPrices.get(symbol) ?? null;
+  }
+
+  /**
+   * Get USDT price (always 1.0)
+   */
+  getUsdtPrice(): number {
+    return this.USDT_PRICE;
+  }
+
+  /**
+   * Check if symbol is USDT
+   */
+  isUsdt(symbol: string): boolean {
+    return symbol === this.USDT_SYMBOL || symbol === 'USDTUSDT';
   }
 
   /**

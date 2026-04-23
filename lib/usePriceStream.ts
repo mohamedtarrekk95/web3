@@ -62,6 +62,17 @@ export function usePriceStream() {
 
     const fromSymbol = fromCoin.symbol;
     const toSymbol = toCoin.symbol;
+
+    // Special case: USDT is always 1.0
+    if (fromSymbol === 'USDT' && toSymbol === 'USDT') {
+      const rateWithMargin = 1.0 * (1 - MARGIN);
+      const total = rateWithMargin * amountNum;
+      if (Number.isFinite(total)) {
+        setPrice(rateWithMargin, 1.0, total, Date.now() + 60000, false, 'Live');
+      }
+      return;
+    }
+
     const fromKey = `${fromSymbol}USDT`;
     const toKey = `${toSymbol}USDT`;
 
@@ -116,17 +127,67 @@ export function usePriceStream() {
     const store = useExchangeStore.getState();
     const { livePrices, amount } = store;
 
-    const fromKey = `${fromCoin.symbol}USDT`;
-    const toKey = `${toCoin.symbol}USDT`;
-
-    const fromPrice = livePrices[fromKey];
-    const toPrice = livePrices[toKey];
-
+    const fromSymbol = fromCoin.symbol;
+    const toSymbol = toCoin.symbol;
     const amountNum = parseFloat(amount);
+
     if (isNaN(amountNum) || amountNum <= 0) {
       setLoading(false);
       return;
     }
+
+    // Special case: USDT to USDT = 1.0
+    if (fromSymbol === 'USDT' && toSymbol === 'USDT') {
+      const rateWithMargin = 1.0 * (1 - MARGIN);
+      const total = rateWithMargin * amountNum;
+      if (Number.isFinite(rateWithMargin) && Number.isFinite(total)) {
+        setPrice(rateWithMargin, 1.0, total, Date.now() + 60000, false, 'Live');
+        setLoading(false);
+        setIsUpdating(false);
+      }
+      return;
+    }
+
+    // USDT to crypto: rate = 1 / cryptoPrice
+    if (fromSymbol === 'USDT' && toSymbol !== 'USDT') {
+      const toKey = `${toSymbol}USDT`;
+      const toPrice = livePrices[toKey];
+      if (toPrice && toPrice > 0) {
+        const marketRate = 1 / toPrice;
+        const rateWithMargin = marketRate * (1 - MARGIN);
+        const total = rateWithMargin * amountNum;
+        if (Number.isFinite(marketRate) && Number.isFinite(rateWithMargin) && Number.isFinite(total)) {
+          setPrice(rateWithMargin, marketRate, total, Date.now() + 60000, false, 'Live');
+          setLoading(false);
+          setIsUpdating(false);
+        }
+      }
+      return;
+    }
+
+    // Crypto to USDT: rate = cryptoPrice
+    if (fromSymbol !== 'USDT' && toSymbol === 'USDT') {
+      const fromKey = `${fromSymbol}USDT`;
+      const fromPrice = livePrices[fromKey];
+      if (fromPrice && fromPrice > 0) {
+        const marketRate = fromPrice;
+        const rateWithMargin = marketRate * (1 - MARGIN);
+        const total = rateWithMargin * amountNum;
+        if (Number.isFinite(marketRate) && Number.isFinite(rateWithMargin) && Number.isFinite(total)) {
+          setPrice(rateWithMargin, marketRate, total, Date.now() + 60000, false, 'Live');
+          setLoading(false);
+          setIsUpdating(false);
+        }
+      }
+      return;
+    }
+
+    // Both are crypto - normal calculation
+    const fromKey = `${fromSymbol}USDT`;
+    const toKey = `${toSymbol}USDT`;
+
+    const fromPrice = livePrices[fromKey];
+    const toPrice = livePrices[toKey];
 
     if (fromPrice && toPrice && fromPrice > 0 && toPrice > 0) {
       const marketRate = fromPrice / toPrice;
