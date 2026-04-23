@@ -10,15 +10,24 @@ if (!JWT_SECRET) {
   throw new Error('JWT_SECRET environment variable is required');
 }
 
-function verifyToken(request: Request) {
-  // Read from cookie instead of Authorization header (frontend uses credentials: 'include')
+function extractToken(request: Request): string | null {
   const cookieHeader = request.headers.get('cookie');
-  if (!cookieHeader) throw new Error('Unauthorized');
+  if (!cookieHeader) return null;
 
-  const match = cookieHeader.match(/auth_token=([^;]+)/);
-  if (!match) throw new Error('Unauthorized');
+  // Check admin_token first (set by admin login), then auth_token (user login)
+  const adminMatch = cookieHeader.match(/admin_token=([^;]+)/);
+  if (adminMatch) return adminMatch[1];
 
-  const token = match[1];
+  const authMatch = cookieHeader.match(/auth_token=([^;]+)/);
+  if (authMatch) return authMatch[1];
+
+  return null;
+}
+
+function verifyToken(request: Request) {
+  const token = extractToken(request);
+  if (!token) throw new Error('Unauthorized');
+
   return jwt.verify(token, JWT_SECRET) as { userId: string; email: string; role: string };
 }
 
