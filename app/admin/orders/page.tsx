@@ -19,18 +19,31 @@ export default function AdminOrders() {
   }, [isAuthenticated]);
 
   const fetchOrders = async () => {
+    console.log('[AdminOrders] Fetching orders...');
     try {
       const response = await fetch('/api/admin/orders', {
         credentials: 'include',
       });
 
-      if (response.ok) {
-        const data = await response.json();
-        setOrders(data);
+      console.log('[AdminOrders] Response status:', response.status);
+      const data = await response.json();
+      console.log('[AdminOrders] Raw response:', JSON.stringify(data));
+      console.log('[AdminOrders] Response type:', typeof data);
+      console.log('[AdminOrders] Is array:', Array.isArray(data));
+      console.log('[AdminOrders] Has orders:', data?.orders);
+
+      if (response.ok && data?.success && Array.isArray(data.orders)) {
+        console.log('[AdminOrders] Setting', data.orders.length, 'orders');
+        setOrders(data.orders);
+        setError(null);
       } else {
-        setError('Failed to fetch orders');
+        console.log('[AdminOrders] API error:', data?.message || 'Unknown error');
+        setOrders([]);
+        setError(data?.message || 'Failed to fetch orders');
       }
-    } catch {
+    } catch (err) {
+      console.error('[AdminOrders] Catch error:', err);
+      setOrders([]);
       setError('Failed to fetch orders');
     } finally {
       setOrdersLoading(false);
@@ -50,16 +63,27 @@ export default function AdminOrders() {
       });
 
       if (response.ok) {
-        setOrders(orders.map((o) => (o.orderId === orderId ? { ...o, status } : o)));
+        const data = await response.json();
+        console.log('[AdminOrders] Update response:', JSON.stringify(data));
+        if (data?.success && data?.order) {
+          setOrders((prev) => {
+            const arr = Array.isArray(prev) ? prev : [];
+            return arr.map((o) => (o.orderId === orderId ? { ...o, status } : o));
+          });
+        }
+      } else {
+        console.error('[AdminOrders] Update failed, status:', response.status);
       }
     } catch (err) {
-      console.error('Failed to update order:', err);
+      console.error('[AdminOrders] Update catch error:', err);
     } finally {
       setUpdating(null);
     }
   };
 
-  const filteredOrders = orders.filter((order) => {
+  const safeOrders = Array.isArray(orders) ? orders : [];
+
+  const filteredOrders = safeOrders.filter((order) => {
     if (filter === 'all') return true;
     return order.status === filter;
   });
@@ -137,55 +161,57 @@ export default function AdminOrders() {
                 </tr>
               </thead>
               <tbody className="divide-y divide-gray-800">
-                {filteredOrders.map((order) => (
-                  <tr key={order.orderId} className="hover:bg-gray-800/50">
-                    <td className="px-6 py-4 text-sm text-white font-mono">
-                      {order.orderId.slice(0, 8)}...
-                    </td>
-                    <td className="px-6 py-4">
-                      <span className="text-white font-medium">{order.fromCoin}</span>
-                    </td>
-                    <td className="px-6 py-4">
-                      <span className="text-cyan-400 font-medium">{order.toCoin}</span>
-                    </td>
-                    <td className="px-6 py-4 text-white">{formatNumber(order.amountSent)}</td>
-                    <td className="px-6 py-4 text-cyan-400">{formatNumber(order.amountReceived)}</td>
-                    <td className="px-6 py-4">
-                      <span className={`px-3 py-1 rounded-full text-xs font-medium ${
-                        order.status === 'completed'
-                          ? 'bg-green-500/20 text-green-400'
-                          : 'bg-yellow-500/20 text-yellow-400'
-                      }`}>
-                        {order.status}
-                      </span>
-                    </td>
-                    <td className="px-6 py-4 text-sm text-gray-400">{formatDate(order.createdAt)}</td>
-                    <td className="px-6 py-4">
-                      <AdminRoute
-                        fallback={<span className="text-gray-500 text-sm">No action</span>}
-                      >
-                        {order.status === 'pending' && (
-                          <button
-                            onClick={() => updateOrderStatus(order.orderId, 'completed')}
-                            disabled={updating === order.orderId}
-                            className="px-3 py-1 bg-green-500/20 text-green-400 rounded-lg hover:bg-green-500/30 transition-colors disabled:opacity-50 text-sm"
-                          >
-                            {updating === order.orderId ? 'Updating...' : 'Complete'}
-                          </button>
-                        )}
-                      </AdminRoute>
+                {filteredOrders.length === 0 ? (
+                  <tr>
+                    <td colSpan={8} className="px-6 py-12 text-center text-gray-500">
+                      No orders found
                     </td>
                   </tr>
-                ))}
+                ) : (
+                  filteredOrders.map((order) => (
+                    <tr key={order.orderId} className="hover:bg-gray-800/50">
+                      <td className="px-6 py-4 text-sm text-white font-mono">
+                        {order.orderId?.slice(0, 8) || 'N/A'}...
+                      </td>
+                      <td className="px-6 py-4">
+                        <span className="text-white font-medium">{order.fromCoin}</span>
+                      </td>
+                      <td className="px-6 py-4">
+                        <span className="text-cyan-400 font-medium">{order.toCoin}</span>
+                      </td>
+                      <td className="px-6 py-4 text-white">{formatNumber(order.amountSent || 0)}</td>
+                      <td className="px-6 py-4 text-cyan-400">{formatNumber(order.amountReceived || 0)}</td>
+                      <td className="px-6 py-4">
+                        <span className={`px-3 py-1 rounded-full text-xs font-medium ${
+                          order.status === 'completed'
+                            ? 'bg-green-500/20 text-green-400'
+                            : 'bg-yellow-500/20 text-yellow-400'
+                        }`}>
+                          {order.status || 'unknown'}
+                        </span>
+                      </td>
+                      <td className="px-6 py-4 text-sm text-gray-400">{formatDate(order.createdAt || Date.now().toString())}</td>
+                      <td className="px-6 py-4">
+                        <AdminRoute
+                          fallback={<span className="text-gray-500 text-sm">No action</span>}
+                        >
+                          {order.status === 'pending' && (
+                            <button
+                              onClick={() => updateOrderStatus(order.orderId, 'completed')}
+                              disabled={updating === order.orderId}
+                              className="px-3 py-1 bg-green-500/20 text-green-400 rounded-lg hover:bg-green-500/30 transition-colors disabled:opacity-50 text-sm"
+                            >
+                              {updating === order.orderId ? 'Updating...' : 'Complete'}
+                            </button>
+                          )}
+                        </AdminRoute>
+                      </td>
+                    </tr>
+                  ))
+                )}
               </tbody>
             </table>
           </div>
-
-          {filteredOrders.length === 0 && (
-            <div className="p-12 text-center text-gray-500">
-              No orders found
-            </div>
-          )}
         </div>
       </div>
     </div>

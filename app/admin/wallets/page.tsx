@@ -26,32 +26,51 @@ export default function AdminWallets() {
   }, [isAuthenticated]);
 
   const fetchData = async () => {
+    console.log('[AdminWallets] Fetching data...');
     try {
       const [walletsRes, coinsRes] = await Promise.all([
         fetch('/api/admin/wallets', { credentials: 'include' }),
         fetch('/api/coins'),
       ]);
 
-      if (walletsRes.ok) {
-        const walletsData = await walletsRes.json();
+      console.log('[AdminWallets] Wallets response status:', walletsRes.status);
+      const walletsRaw = await walletsRes.json();
+      console.log('[AdminWallets] Raw wallets response:', JSON.stringify(walletsRaw));
+      console.log('[AdminWallets] Response type:', typeof walletsRaw);
+      console.log('[AdminWallets] Is array:', Array.isArray(walletsRaw));
+      console.log('[AdminWallets] Has wallets:', walletsRaw?.wallets);
+      console.log('[AdminWallets] Success flag:', walletsRaw?.success);
+
+      if (walletsRes.ok && walletsRaw?.success) {
+        const walletsData = Array.isArray(walletsRaw.wallets) ? walletsRaw.wallets : [];
+        console.log('[AdminWallets] Setting', walletsData.length, 'wallets');
         setWallets(walletsData);
+      } else {
+        console.log('[AdminWallets] Wallet API error:', walletsRaw?.message || 'Unknown');
+        setWallets([]);
       }
+
       if (coinsRes.ok) {
         const coinsData = await coinsRes.json();
-        setCoins(coinsData);
+        console.log('[AdminWallets] Coins count:', Array.isArray(coinsData) ? coinsData.length : 0);
+        setCoins(Array.isArray(coinsData) ? coinsData : []);
       }
     } catch (err) {
-      console.error('Failed to fetch data:', err);
+      console.error('[AdminWallets] Fetch error:', err);
+      setWallets([]);
+      setCoins([]);
     } finally {
       setPageLoading(false);
     }
   };
 
-  const getWallet = (symbol: string) => {
-    return wallets.find((w) => w.coinSymbol === symbol) || { address: '', qrCodeUrl: '' };
+  const getWallet = (symbol: string): Wallet => {
+    if (!Array.isArray(wallets)) return { _id: '', coinSymbol: symbol, address: '', qrCodeUrl: '' };
+    return wallets.find((w) => w.coinSymbol === symbol) || { _id: '', coinSymbol: symbol, address: '', qrCodeUrl: '' };
   };
 
   const saveWallet = async (symbol: string, address: string, qrCodeUrl: string) => {
+    console.log('[AdminWallets] Save request:', { symbol, address, qrCodeUrl });
     setSaving(true);
     try {
       const response = await fetch('/api/admin/wallets', {
@@ -61,20 +80,26 @@ export default function AdminWallets() {
         body: JSON.stringify({ coinSymbol: symbol, address, qrCodeUrl }),
       });
 
-      if (response.ok) {
-        const updatedWallet = await response.json();
+      const data = await response.json();
+      console.log('[AdminWallets] Save response:', JSON.stringify(data));
+
+      if (response.ok && data?.success) {
+        const updatedWallet = data.wallet;
         setWallets((prev) => {
-          const exists = prev.find((w) => w.coinSymbol === symbol);
+          const arr = Array.isArray(prev) ? prev : [];
+          const exists = arr.find((w) => w.coinSymbol === symbol);
           if (exists) {
-            return prev.map((w) => (w.coinSymbol === symbol ? updatedWallet : w));
+            return arr.map((w) => (w.coinSymbol === symbol ? updatedWallet : w));
           }
-          return [...prev, updatedWallet];
+          return [...arr, updatedWallet];
         });
         setMessage({ type: 'success', text: `${symbol} wallet saved successfully` });
       } else {
-        setMessage({ type: 'error', text: 'Failed to save wallet' });
+        console.log('[AdminWallets] Save failed:', data?.message);
+        setMessage({ type: 'error', text: data?.message || 'Failed to save wallet' });
       }
-    } catch {
+    } catch (err) {
+      console.error('[AdminWallets] Save error:', err);
       setMessage({ type: 'error', text: 'Network error' });
     } finally {
       setSaving(false);
@@ -131,14 +156,14 @@ export default function AdminWallets() {
         )}
 
         <div className="grid gap-6">
-          {coins.map((coin) => {
+          {Array.isArray(coins) && coins.map((coin) => {
             const wallet = getWallet(coin.symbol);
             return (
               <WalletForm
                 key={coin.symbol}
                 coin={coin}
-                initialAddress={wallet.address}
-                initialQrCodeUrl={wallet.qrCodeUrl}
+                initialAddress={wallet?.address || ''}
+                initialQrCodeUrl={wallet?.qrCodeUrl || ''}
                 onSave={saveWallet}
                 saving={saving}
               />
