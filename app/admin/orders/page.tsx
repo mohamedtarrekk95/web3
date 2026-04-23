@@ -30,6 +30,9 @@ export default function AdminOrders() {
   const [typeFilter, setTypeFilter] = useState<'all' | 'exchange' | 'p2p_buy' | 'p2p_sell'>('all');
   const [updating, setUpdating] = useState<string | null>(null);
   const [adminNotes, setAdminNotes] = useState<Record<string, string>>({});
+  const [editingNoteOrderId, setEditingNoteOrderId] = useState<string | null>(null);
+  const [editingNoteValue, setEditingNoteValue] = useState('');
+  const [editingNoteOriginal, setEditingNoteOriginal] = useState('');
 
   useEffect(() => {
     if (isAuthenticated) {
@@ -108,6 +111,48 @@ export default function AdminOrders() {
 
   const handleNoteChange = (orderId: string, note: string) => {
     setAdminNotes((prev) => ({ ...prev, [orderId]: note }));
+  };
+
+  const handleEditNote = (orderId: string) => {
+    const note = adminNotes[orderId] || '';
+    setEditingNoteOriginal(note);
+    setEditingNoteValue(note);
+    setEditingNoteOrderId(orderId);
+  };
+
+  const handleCancelNote = () => {
+    setEditingNoteOrderId(null);
+    setEditingNoteValue('');
+    setEditingNoteOriginal('');
+  };
+
+  const handleSaveNote = async () => {
+    if (!editingNoteOrderId) return;
+    setUpdating(editingNoteOrderId);
+    try {
+      const response = await fetch(`/api/admin/orders/${editingNoteOrderId}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
+        body: JSON.stringify({
+          adminNote: editingNoteValue,
+        }),
+      });
+
+      if (response.ok) {
+        const data = await response.json();
+        if (data?.success && data?.order) {
+          setOrders((prev) => {
+            const arr = Array.isArray(prev) ? prev : [];
+            return arr.map((o) => (o.orderId === editingNoteOrderId ? data.order : o));
+          });
+          setAdminNotes((prev) => ({ ...prev, [editingNoteOrderId]: editingNoteValue }));
+        }
+      }
+    } finally {
+      setUpdating(null);
+      setEditingNoteOrderId(null);
+    }
   };
 
   const safeOrders = Array.isArray(orders) ? orders : [];
@@ -321,14 +366,52 @@ export default function AdminOrders() {
 
                 {/* Admin Note */}
                 <div className="mb-4">
-                  <label className="block text-xs text-gray-400 mb-2">Admin Note</label>
-                  <textarea
-                    value={adminNotes[order.orderId] || ''}
-                    onChange={(e) => handleNoteChange(order.orderId, e.target.value)}
-                    placeholder="Add a note for this order..."
-                    rows={2}
-                    className="w-full px-4 py-3 bg-gray-800/50 border border-gray-700 rounded-xl text-white placeholder-gray-500 focus:outline-none focus:border-cyan-500 transition-colors resize-none text-sm"
-                  />
+                  <div className="flex items-center justify-between mb-2">
+                    <label className="block text-xs text-gray-400">Admin Note</label>
+                    {editingNoteOrderId !== order.orderId && (
+                      <button
+                        onClick={() => handleEditNote(order.orderId)}
+                        className="px-2 py-1 bg-cyan-500/20 hover:bg-cyan-500/30 text-cyan-400 text-xs rounded-lg transition-colors"
+                      >
+                        Edit Note
+                      </button>
+                    )}
+                  </div>
+                  {editingNoteOrderId === order.orderId ? (
+                    <div className="space-y-2">
+                      <textarea
+                        value={editingNoteValue}
+                        onChange={(e) => setEditingNoteValue(e.target.value)}
+                        placeholder="Enter admin note..."
+                        rows={3}
+                        className="w-full px-4 py-3 bg-gray-800/50 border border-gray-700 rounded-xl text-white placeholder-gray-500 focus:outline-none focus:border-cyan-500 transition-colors resize-none text-sm"
+                        autoFocus
+                      />
+                      <div className="flex gap-2">
+                        <button
+                          onClick={handleSaveNote}
+                          disabled={updating === order.orderId}
+                          className="px-3 py-1.5 bg-green-500 hover:bg-green-400 text-white text-xs rounded-lg transition-colors disabled:opacity-50"
+                        >
+                          {updating === order.orderId ? 'Saving...' : 'Save'}
+                        </button>
+                        <button
+                          onClick={handleCancelNote}
+                          className="px-3 py-1.5 bg-gray-600 hover:bg-gray-500 text-white text-xs rounded-lg transition-colors"
+                        >
+                          Cancel
+                        </button>
+                      </div>
+                    </div>
+                  ) : (
+                    <div className="bg-gray-800/50 p-3 rounded-xl min-h-[60px]">
+                      {adminNotes[order.orderId] ? (
+                        <p className="text-white text-sm whitespace-pre-wrap">{adminNotes[order.orderId]}</p>
+                      ) : (
+                        <p className="text-gray-500 text-sm italic">No note added</p>
+                      )}
+                    </div>
+                  )}
                 </div>
 
                 {/* Actions */}
