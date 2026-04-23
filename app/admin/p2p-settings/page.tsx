@@ -153,6 +153,51 @@ export default function AdminP2PSettings() {
             </div>
           </div>
 
+          {/* USDT Wallet & QR Code */}
+          <div className="bg-gray-900/80 backdrop-blur-xl border border-gray-800 rounded-2xl p-6">
+            <h2 className="text-lg font-semibold text-white mb-6">USDT Wallet Configuration</h2>
+            <div className="space-y-4">
+              <div>
+                <label className="block text-sm text-gray-400 mb-2">USDT Wallet Address (TRC20)</label>
+                <div className="flex gap-3">
+                  <input
+                    type="text"
+                    value={settings.usdtWalletAddress || ''}
+                    onChange={(e) => handleChange('usdtWalletAddress', e.target.value)}
+                    placeholder="Enter USDT wallet address for P2P Sell orders"
+                    className="flex-1 px-4 py-3 bg-gray-800/50 border border-gray-700 rounded-xl text-white placeholder-gray-500 focus:outline-none focus:border-cyan-500 transition-colors"
+                  />
+                  <button
+                    onClick={() => saveSetting('usdtWalletAddress', settings.usdtWalletAddress || '')}
+                    disabled={saving}
+                    className="px-4 py-3 bg-gradient-to-r from-cyan-500 to-blue-500 hover:from-cyan-400 hover:to-blue-400 disabled:from-gray-700 disabled:to-gray-700 text-white font-medium rounded-xl transition-all disabled:cursor-not-allowed text-sm"
+                  >
+                    {saving ? '...' : 'Save'}
+                  </button>
+                </div>
+              </div>
+              <div>
+                <label className="block text-sm text-gray-400 mb-2">QR Code Image URL</label>
+                <div className="flex gap-3">
+                  <input
+                    type="text"
+                    value={settings.usdtQrCodeImageUrl || ''}
+                    onChange={(e) => handleChange('usdtQrCodeImageUrl', e.target.value)}
+                    placeholder="https://example.com/qr-code.png"
+                    className="flex-1 px-4 py-3 bg-gray-800/50 border border-gray-700 rounded-xl text-white placeholder-gray-500 focus:outline-none focus:border-cyan-500 transition-colors"
+                  />
+                  <button
+                    onClick={() => saveSetting('usdtQrCodeImageUrl', settings.usdtQrCodeImageUrl || '')}
+                    disabled={saving}
+                    className="px-4 py-3 bg-gradient-to-r from-cyan-500 to-blue-500 hover:from-cyan-400 hover:to-blue-400 disabled:from-gray-700 disabled:to-gray-700 text-white font-medium rounded-xl transition-all disabled:cursor-not-allowed text-sm"
+                  >
+                    {saving ? '...' : 'Save'}
+                  </button>
+                </div>
+              </div>
+            </div>
+          </div>
+
           {/* Price Settings */}
           <div className="bg-gray-900/80 backdrop-blur-xl border border-gray-800 rounded-2xl p-6">
             <h2 className="text-lg font-semibold text-white mb-6">Price Configuration</h2>

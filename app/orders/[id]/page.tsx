@@ -39,11 +39,20 @@ export default function OrderDetailsPage({ params }: { params: Promise<{ id: str
   const [submitting, setSubmitting] = useState(false);
   const [txidInput, setTxidInput] = useState('');
   const [qrImageError, setQrImageError] = useState(false);
+  const [walletCopied, setWalletCopied] = useState(false);
 
   useEffect(() => {
     fetchOrder();
     fetchSettings();
   }, [resolvedParams.id]);
+
+  const handleCopyWallet = () => {
+    if (settings.usdtWalletAddress) {
+      navigator.clipboard.writeText(settings.usdtWalletAddress);
+      setWalletCopied(true);
+      setTimeout(() => setWalletCopied(false), 2000);
+    }
+  };
 
   const fetchOrder = async () => {
     try {
@@ -288,30 +297,63 @@ export default function OrderDetailsPage({ params }: { params: Promise<{ id: str
           </div>
         )}
 
-        {/* P2P Sell: Admin Wallet & TXID Input */}
+        {/* P2P Sell: USDT Payment QR Code & Wallet */}
         {isP2PSell && (
           <div className="bg-gray-900/80 backdrop-blur-xl border border-gray-800 rounded-2xl p-6 mb-6">
-            <h2 className="text-lg font-semibold text-white mb-4">Admin USDT Wallet</h2>
+            <h2 className="text-lg font-semibold text-white mb-4">USDT Payment QR Code (TRC20)</h2>
 
-            {qrImageSrc && (
-              <div className="flex justify-center mb-6">
-                <div className="bg-white p-4 rounded-xl">
+            {qrImageSrc ? (
+              <div className="flex flex-col items-center">
+                <div className="bg-white p-4 rounded-xl mb-4">
                   <img
                     src={qrImageSrc}
-                    alt="Payment QR Code"
-                    className="w-48 h-48 object-contain"
+                    alt="USDT Payment QR Code"
+                    className="w-48 h-48 md:w-56 md:h-56 object-contain max-w-full"
                     onError={handleQrImageError}
                   />
                 </div>
+                <p className="text-sm text-gray-400 text-center">
+                  Scan this QR code to send USDT via TRC20 network
+                </p>
+              </div>
+            ) : (
+              <div className="flex flex-col items-center mb-4">
+                <div className="bg-gray-800 p-8 rounded-xl text-center text-gray-500 mb-4">
+                  No QR code available
+                </div>
+                <p className="text-sm text-gray-400 text-center">
+                  Admin has not configured a QR code yet
+                </p>
               </div>
             )}
+          </div>
+        )}
 
-            {settings.usdtWalletAddress && (
-              <div className="bg-gray-800/50 p-4 rounded-xl mb-6">
-                <div className="text-xs text-gray-400 mb-1">Admin USDT Address (TRC20)</div>
-                <div className="text-sm text-white font-mono break-all">{settings.usdtWalletAddress}</div>
-              </div>
-            )}
+        {/* P2P Sell: USDT Wallet Address */}
+        {isP2PSell && settings.usdtWalletAddress && (
+          <div className="bg-gray-900/80 backdrop-blur-xl border border-gray-800 rounded-2xl p-6 mb-6">
+            <h2 className="text-lg font-semibold text-white mb-4">USDT Wallet Address (TRC20)</h2>
+            <div className="flex items-center gap-3">
+              <input
+                type="text"
+                readOnly
+                value={settings.usdtWalletAddress}
+                className="flex-1 px-4 py-3 bg-gray-800/50 border border-gray-700 rounded-xl text-white font-mono text-sm break-all"
+              />
+              <button
+                onClick={handleCopyWallet}
+                className="px-4 py-3 bg-cyan-500 hover:bg-cyan-400 text-white font-medium rounded-xl transition-colors whitespace-nowrap"
+              >
+                {walletCopied ? 'Copied!' : 'Copy'}
+              </button>
+            </div>
+          </div>
+        )}
+
+        {/* P2P Sell: TXID Input/Display */}
+        {isP2PSell && (
+          <div className="bg-gray-900/80 backdrop-blur-xl border border-gray-800 rounded-2xl p-6 mb-6">
+            <h2 className="text-lg font-semibold text-white mb-4">Transaction Details</h2>
 
             {showTxidDisplay && (
               <div className="bg-gray-800/50 p-4 rounded-xl">
