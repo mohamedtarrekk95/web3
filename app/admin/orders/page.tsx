@@ -1,60 +1,51 @@
 'use client';
 
 import { useState, useEffect } from 'react';
-import { useRouter } from 'next/navigation';
+import { useAuth } from '@/lib/useAuth';
+import { AdminRoute } from '@/components/AdminRoute';
 
 export default function AdminOrders() {
-  const router = useRouter();
+  const { user, isAuthenticated, loading } = useAuth();
   const [orders, setOrders] = useState<any[]>([]);
-  const [loading, setLoading] = useState(true);
+  const [ordersLoading, setOrdersLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [filter, setFilter] = useState<'all' | 'pending' | 'completed'>('all');
   const [updating, setUpdating] = useState<string | null>(null);
 
   useEffect(() => {
-    fetchOrders();
-  }, []);
+    if (isAuthenticated) {
+      fetchOrders();
+    }
+  }, [isAuthenticated]);
 
   const fetchOrders = async () => {
-    const token = localStorage.getItem('adminToken');
-    if (!token) {
-      router.push('/admin/login');
-      return;
-    }
-
     try {
       const response = await fetch('/api/admin/orders', {
-        headers: { Authorization: `Bearer ${token}` },
+        credentials: 'include',
       });
 
-      if (!response.ok) {
-        throw new Error('Unauthorized');
+      if (response.ok) {
+        const data = await response.json();
+        setOrders(data);
+      } else {
+        setError('Failed to fetch orders');
       }
-
-      const data = await response.json();
-      setOrders(data);
-    } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to fetch orders');
-      if (err instanceof Error && err.message === 'Unauthorized') {
-        router.push('/admin/login');
-      }
+    } catch {
+      setError('Failed to fetch orders');
     } finally {
-      setLoading(false);
+      setOrdersLoading(false);
     }
   };
 
   const updateOrderStatus = async (orderId: string, status: string) => {
-    const token = localStorage.getItem('adminToken');
-    if (!token) return;
-
     setUpdating(orderId);
     try {
       const response = await fetch(`/api/admin/orders/${orderId}`, {
         method: 'PATCH',
         headers: {
           'Content-Type': 'application/json',
-          Authorization: `Bearer ${token}`,
         },
+        credentials: 'include',
         body: JSON.stringify({ status }),
       });
 
@@ -89,6 +80,14 @@ export default function AdminOrders() {
     );
   }
 
+  if (!isAuthenticated) {
+    return (
+      <div className="min-h-screen flex items-center justify-center">
+        <p className="text-gray-400">Please log in to view orders</p>
+      </div>
+    );
+  }
+
   return (
     <div className="min-h-screen p-4 md:p-8">
       <div className="max-w-6xl mx-auto">
@@ -113,15 +112,6 @@ export default function AdminOrders() {
             >
               Manage Wallets
             </a>
-            <button
-              onClick={() => {
-                localStorage.removeItem('adminToken');
-                router.push('/admin/login');
-              }}
-              className="px-4 py-2 bg-red-500/20 border border-red-500/50 rounded-xl text-red-400 hover:bg-red-500/30 transition-colors"
-            >
-              Logout
-            </button>
           </div>
         </header>
 
@@ -153,9 +143,7 @@ export default function AdminOrders() {
                       {order.orderId.slice(0, 8)}...
                     </td>
                     <td className="px-6 py-4">
-                      <div className="flex items-center gap-2">
-                        <span className="text-white font-medium">{order.fromCoin}</span>
-                      </div>
+                      <span className="text-white font-medium">{order.fromCoin}</span>
                     </td>
                     <td className="px-6 py-4">
                       <span className="text-cyan-400 font-medium">{order.toCoin}</span>
@@ -173,15 +161,19 @@ export default function AdminOrders() {
                     </td>
                     <td className="px-6 py-4 text-sm text-gray-400">{formatDate(order.createdAt)}</td>
                     <td className="px-6 py-4">
-                      {order.status === 'pending' && (
-                        <button
-                          onClick={() => updateOrderStatus(order.orderId, 'completed')}
-                          disabled={updating === order.orderId}
-                          className="px-3 py-1 bg-green-500/20 text-green-400 rounded-lg hover:bg-green-500/30 transition-colors disabled:opacity-50 text-sm"
-                        >
-                          {updating === order.orderId ? 'Updating...' : 'Complete'}
-                        </button>
-                      )}
+                      <AdminRoute
+                        fallback={<span className="text-gray-500 text-sm">No action</span>}
+                      >
+                        {order.status === 'pending' && (
+                          <button
+                            onClick={() => updateOrderStatus(order.orderId, 'completed')}
+                            disabled={updating === order.orderId}
+                            className="px-3 py-1 bg-green-500/20 text-green-400 rounded-lg hover:bg-green-500/30 transition-colors disabled:opacity-50 text-sm"
+                          >
+                            {updating === order.orderId ? 'Updating...' : 'Complete'}
+                          </button>
+                        )}
+                      </AdminRoute>
                     </td>
                   </tr>
                 ))}

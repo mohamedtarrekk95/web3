@@ -1,7 +1,8 @@
 'use client';
 
 import { useState, useEffect } from 'react';
-import { useRouter } from 'next/navigation';
+import { useAuth } from '@/lib/useAuth';
+import { AdminRoute } from '@/components/AdminRoute';
 
 interface Wallet {
   _id: string;
@@ -11,47 +12,38 @@ interface Wallet {
 }
 
 export default function AdminWallets() {
-  const router = useRouter();
+  const { user, isAuthenticated, loading } = useAuth();
   const [wallets, setWallets] = useState<Wallet[]>([]);
   const [coins, setCoins] = useState<any[]>([]);
-  const [loading, setLoading] = useState(true);
+  const [pageLoading, setPageLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [message, setMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
 
   useEffect(() => {
-    fetchData();
-  }, []);
+    if (isAuthenticated) {
+      fetchData();
+    }
+  }, [isAuthenticated]);
 
   const fetchData = async () => {
-    const token = localStorage.getItem('adminToken');
-    if (!token) {
-      router.push('/admin/login');
-      return;
-    }
-
     try {
       const [walletsRes, coinsRes] = await Promise.all([
-        fetch('/api/admin/wallets', {
-          headers: { Authorization: `Bearer ${token}` },
-        }),
+        fetch('/api/admin/wallets', { credentials: 'include' }),
         fetch('/api/coins'),
       ]);
 
-      if (!walletsRes.ok) {
-        throw new Error('Unauthorized');
+      if (walletsRes.ok) {
+        const walletsData = await walletsRes.json();
+        setWallets(walletsData);
       }
-
-      const walletsData = await walletsRes.json();
-      const coinsData = await coinsRes.json();
-
-      setWallets(walletsData);
-      setCoins(coinsData);
+      if (coinsRes.ok) {
+        const coinsData = await coinsRes.json();
+        setCoins(coinsData);
+      }
     } catch (err) {
-      if (err instanceof Error && err.message === 'Unauthorized') {
-        router.push('/admin/login');
-      }
+      console.error('Failed to fetch data:', err);
     } finally {
-      setLoading(false);
+      setPageLoading(false);
     }
   };
 
@@ -60,17 +52,12 @@ export default function AdminWallets() {
   };
 
   const saveWallet = async (symbol: string, address: string, qrCodeUrl: string) => {
-    const token = localStorage.getItem('adminToken');
-    if (!token) return;
-
     setSaving(true);
     try {
       const response = await fetch('/api/admin/wallets', {
         method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          Authorization: `Bearer ${token}`,
-        },
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
         body: JSON.stringify({ coinSymbol: symbol, address, qrCodeUrl }),
       });
 
@@ -87,7 +74,7 @@ export default function AdminWallets() {
       } else {
         setMessage({ type: 'error', text: 'Failed to save wallet' });
       }
-    } catch (err) {
+    } catch {
       setMessage({ type: 'error', text: 'Network error' });
     } finally {
       setSaving(false);
@@ -101,10 +88,18 @@ export default function AdminWallets() {
     }
   }, [message]);
 
-  if (loading) {
+  if (loading || pageLoading) {
     return (
       <div className="min-h-screen flex items-center justify-center">
         <div className="w-12 h-12 border-4 border-cyan-500 border-t-transparent rounded-full animate-spin" />
+      </div>
+    );
+  }
+
+  if (!isAuthenticated) {
+    return (
+      <div className="min-h-screen flex items-center justify-center">
+        <p className="text-gray-400">Please log in to manage wallets</p>
       </div>
     );
   }
@@ -117,23 +112,12 @@ export default function AdminWallets() {
             <h1 className="text-2xl font-bold text-white">Wallet Management</h1>
             <p className="text-gray-400 mt-1">Configure deposit addresses for each coin</p>
           </div>
-          <div className="flex items-center gap-4">
-            <a
-              href="/admin/orders"
-              className="px-4 py-2 bg-gray-800 border border-gray-700 rounded-xl text-white hover:border-cyan-500 transition-colors"
-            >
-              Manage Orders
-            </a>
-            <button
-              onClick={() => {
-                localStorage.removeItem('adminToken');
-                router.push('/admin/login');
-              }}
-              className="px-4 py-2 bg-red-500/20 border border-red-500/50 rounded-xl text-red-400 hover:bg-red-500/30 transition-colors"
-            >
-              Logout
-            </button>
-          </div>
+          <a
+            href="/admin/orders"
+            className="px-4 py-2 bg-gray-800 border border-gray-700 rounded-xl text-white hover:border-cyan-500 transition-colors"
+          >
+            Manage Orders
+          </a>
         </header>
 
         {message && (
@@ -246,13 +230,17 @@ function WalletForm({ coin, initialAddress, initialQrCodeUrl, onSave, saving }: 
       )}
 
       <div className="mt-6 flex justify-end">
-        <button
-          onClick={handleSave}
-          disabled={!hasChanges || saving}
-          className="px-6 py-3 bg-gradient-to-r from-cyan-500 to-blue-500 hover:from-cyan-400 hover:to-blue-400 disabled:from-gray-700 disabled:to-gray-700 text-white font-medium rounded-xl transition-all disabled:cursor-not-allowed"
-        >
-          {saving ? 'Saving...' : 'Save Wallet'}
-        </button>
+        <AdminRoute fallback={
+          <span className="text-gray-500 text-sm">Admin access required to edit</span>
+        }>
+          <button
+            onClick={handleSave}
+            disabled={!hasChanges || saving}
+            className="px-6 py-3 bg-gradient-to-r from-cyan-500 to-blue-500 hover:from-cyan-400 hover:to-blue-400 disabled:from-gray-700 disabled:to-gray-700 text-white font-medium rounded-xl transition-all disabled:cursor-not-allowed"
+          >
+            {saving ? 'Saving...' : 'Save Wallet'}
+          </button>
+        </AdminRoute>
       </div>
     </div>
   );

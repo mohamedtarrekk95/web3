@@ -130,7 +130,7 @@ function OrdersContent() {
 
 export default function MyOrdersPage() {
   return (
-    <ProtectedRoute requiredRole="user" redirectTo="/login">
+    <ProtectedRoute>
       <OrdersContent />
     </ProtectedRoute>
   );
