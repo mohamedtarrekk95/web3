@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import "./globals.css";
 import Navbar from "@/components/Navbar";
+import FloatingP2PButton from "@/components/FloatingP2PButton";
 
 export const metadata: Metadata = {
   title: "CryptoExchange - Fast & Secure Crypto Swaps",
@@ -22,6 +23,7 @@ export default function RootLayout({
       <body className="min-h-screen antialiased bg-gray-900">
         <Navbar />
         {children}
+        <FloatingP2PButton />
       </body>
     </html>
   );
