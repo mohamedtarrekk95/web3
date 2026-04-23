@@ -1,0 +1,8 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="200" height="200" viewBox="0 0 200 200">
+  <rect fill="#f0f0f0" width="200" height="200"/>
+  <rect fill="#ccc" x="40" y="40" width="40" height="40"/>
+  <rect fill="#ccc" x="120" y="40" width="40" height="40"/>
+  <rect fill="#ccc" x="40" y="120" width="40" height="40"/>
+  <text x="100" y="100" font-family="Arial" font-size="14" fill="#666" text-anchor="middle">QR Code</text>
+  <text x="100" y="120" font-family="Arial" font-size="12" fill="#888" text-anchor="middle">Not Available</text>
+</svg>

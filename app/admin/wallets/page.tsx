@@ -12,6 +12,7 @@ interface Wallet {
 }
 
 const DEFAULT_COIN_ICON = 'data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHdpZHRoPSI0OCIgaGVpZ2h0PSI0OCI+PHJlY3Qgd2lkdGg9IjQ4IiBoZWlnaHQ9IjQ4IiBmaWxsPSIjMzMzNjY2Ii8+PHRleHQgeD0iNTAlIiB5PSI1MCUiIHRleHQtYW5jaG9yPSJtaWRkbGUiIGZvbnQtZmFtaWx5PSJBcmlhbCIgZm9udC1zaXplPSIxMiIgZmlsbD0iI2ZmZiI+PC90ZXh0Pjwvc3ZnPg==';
+const QR_PLACEHOLDER = '/qr-placeholder.svg';
 
 export default function AdminWallets() {
   const { user, isAuthenticated, loading } = useAuth();
@@ -39,9 +40,20 @@ export default function AdminWallets() {
       const walletsRaw = await walletsRes.json();
       console.log('[AdminWallets] Raw wallets response:', JSON.stringify(walletsRaw));
 
+      // Validate response structure
       if (walletsRes.ok && walletsRaw?.success && Array.isArray(walletsRaw.wallets)) {
         console.log('[AdminWallets] Setting', walletsRaw.wallets.length, 'wallets');
-        setWallets(walletsRaw.wallets);
+
+        // Normalize wallets data - ensure all fields exist
+        const normalizedWallets = walletsRaw.wallets.map((w: any) => ({
+          _id: w._id || '',
+          symbol: w.symbol || '',
+          address: w.address || '',
+          qrCodeImageUrl: w.qrCodeImageUrl || w.qrCodeUrl || '', // Support both field names
+        }));
+
+        console.log('[AdminWallets] Normalized wallets:', JSON.stringify(normalizedWallets));
+        setWallets(normalizedWallets);
       } else {
         console.log('[AdminWallets] Wallet API error:', walletsRaw?.message || 'Unknown');
         setWallets([]);
@@ -62,8 +74,13 @@ export default function AdminWallets() {
   };
 
   const getWallet = (symbol: string): Wallet | null => {
-    if (!Array.isArray(wallets)) return null;
-    return wallets.find((w) => w.symbol === symbol) || null;
+    if (!Array.isArray(wallets)) {
+      console.log('[AdminWallets] wallets is not an array:', typeof wallets);
+      return null;
+    }
+    const wallet = wallets.find((w) => w.symbol === symbol) || null;
+    console.log('[AdminWallets] getWallet(', symbol, '):', wallet);
+    return wallet;
   };
 
   const saveWallet = async (symbol: string, address: string, qrCodeImageUrl: string) => {
@@ -184,6 +201,17 @@ function WalletForm({ coin, initialAddress, initialQrCodeUrl, onSave, saving }: 
   const [address, setAddress] = useState(initialAddress);
   const [qrCodeImageUrl, setQrCodeImageUrl] = useState(initialQrCodeUrl);
   const [hasChanges, setHasChanges] = useState(false);
+  const [imageError, setImageError] = useState(false);
+
+  console.log('[WalletForm] Rendering for', coin.symbol);
+  console.log('[WalletForm] qrCodeImageUrl:', qrCodeImageUrl);
+  console.log('[WalletForm] imageError:', imageError);
+
+  useEffect(() => {
+    setAddress(initialAddress);
+    setQrCodeImageUrl(initialQrCodeUrl);
+    setImageError(false);
+  }, [initialAddress, initialQrCodeUrl, coin.symbol]);
 
   useEffect(() => {
     setHasChanges(address !== initialAddress || qrCodeImageUrl !== initialQrCodeUrl);
@@ -193,6 +221,18 @@ function WalletForm({ coin, initialAddress, initialQrCodeUrl, onSave, saving }: 
     onSave(coin.symbol, address, qrCodeImageUrl);
     setHasChanges(false);
   };
+
+  const handleImageError = (e: React.SyntheticEvent<HTMLImageElement>) => {
+    console.log('[WalletForm] Image failed to load for', coin.symbol);
+    console.log('[WalletForm] Failed src:', qrCodeImageUrl);
+    setImageError(true);
+    // Prevent infinite loop by clearing onerror
+    e.currentTarget.onerror = null;
+    e.currentTarget.src = QR_PLACEHOLDER;
+  };
+
+  // Determine which image URL to show
+  const displayQrUrl = !imageError && qrCodeImageUrl ? qrCodeImageUrl : (imageError ? QR_PLACEHOLDER : '');
 
   return (
     <div className="bg-gray-900/80 backdrop-blur-xl border border-gray-800 rounded-2xl p-6">
@@ -228,28 +268,40 @@ function WalletForm({ coin, initialAddress, initialQrCodeUrl, onSave, saving }: 
           <input
             type="text"
             value={qrCodeImageUrl}
-            onChange={(e) => setQrCodeImageUrl(e.target.value)}
+            onChange={(e) => {
+              setQrCodeImageUrl(e.target.value);
+              setImageError(false); // Reset error when URL changes
+            }}
             placeholder="Paste QR code image URL"
             className="w-full px-4 py-3 bg-gray-800/50 border border-gray-700 rounded-xl text-white placeholder-gray-500 focus:outline-none focus:border-cyan-500 transition-colors"
           />
         </div>
       </div>
 
-      {qrCodeImageUrl && (
-        <div className="mt-4">
-          <p className="text-sm text-gray-400 mb-2">QR Code Preview</p>
-          <div className="w-32 h-32 bg-white p-2 rounded-xl">
+      {/* QR Code Preview Section */}
+      <div className="mt-4">
+        <p className="text-sm text-gray-400 mb-2">QR Code Preview</p>
+        <div className="w-32 h-32 bg-white p-2 rounded-xl">
+          {displayQrUrl ? (
             <img
-              src={qrCodeImageUrl}
+              src={displayQrUrl}
               alt="QR Code Preview"
               className="w-full h-full object-contain"
-              onError={(e) => {
-                (e.target as HTMLImageElement).style.display = 'none';
-              }}
+              onError={handleImageError}
             />
-          </div>
+          ) : (
+            <div className="w-full h-full flex items-center justify-center text-gray-400 text-xs text-center">
+              No QR Code
+            </div>
+          )}
         </div>
-      )}
+        {qrCodeImageUrl && imageError && (
+          <p className="text-xs text-red-400 mt-1">Failed to load image. Using placeholder.</p>
+        )}
+        {qrCodeImageUrl && !imageError && (
+          <p className="text-xs text-gray-500 mt-1">Image URL: {qrCodeImageUrl}</p>
+        )}
+      </div>
 
       <div className="mt-6 flex justify-end">
         <AdminRoute fallback={

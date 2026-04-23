@@ -11,8 +11,7 @@ interface WalletInfo {
 }
 
 const DEFAULT_COIN_ICON = 'data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHdpZHRoPSI0MCIgaGVpZ2h0PSI0MCI+PHJlY3Qgd2lkdGg9IjQwIiBoZWlnaHQ9IjQwIiBmaWxsPSIjMzMzNjY2Ii8+PHRleHQgeD0iNTAlIiB5PSI1MCUiIHRleHQtYW5jaG9yPSJtaWRkbGUiIGZvbnQtZmFtaWx5PSJBcmlhbCIgZm9udC1zaXplPSIxMiIgZmlsbD0iI2ZmZiI+PC90ZXh0Pjwvc3ZnPg==';
-
-const FALLBACK_QR = '/default-wallet.png';
+const QR_PLACEHOLDER = '/qr-placeholder.svg';
 
 export default function CheckoutPage() {
   const router = useRouter();
@@ -22,6 +21,10 @@ export default function CheckoutPage() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [placingOrder, setPlacingOrder] = useState(false);
+  const [qrImageError, setQrImageError] = useState(false);
+
+  console.log('[Checkout] checkoutData:', checkoutData);
+  console.log('[Checkout] walletInfo:', walletInfo);
 
   useEffect(() => {
     // If no checkout data, redirect to home
@@ -41,8 +44,16 @@ export default function CheckoutPage() {
       const data = await res.json();
       console.log('[Checkout] Wallet response:', JSON.stringify(data));
 
-      if (res.ok && data?.success) {
-        setWalletInfo(data.wallet);
+      if (res.ok && data?.success && data?.wallet) {
+        // Normalize wallet data - support both field names
+        const normalizedWallet: WalletInfo = {
+          symbol: data.wallet.symbol || '',
+          address: data.wallet.address || '',
+          qrCodeImageUrl: data.wallet.qrCodeImageUrl || data.wallet.qrCodeUrl || '',
+        };
+        console.log('[Checkout] Normalized wallet:', normalizedWallet);
+        setWalletInfo(normalizedWallet);
+        setQrImageError(false);
       } else {
         console.log('[Checkout] No wallet found for:', symbol);
         setWalletInfo(null);
@@ -89,6 +100,14 @@ export default function CheckoutPage() {
     }
   };
 
+  const handleQrImageError = (e: React.SyntheticEvent<HTMLImageElement>) => {
+    console.log('[Checkout] QR image failed to load');
+    console.log('[Checkout] Failed src:', walletInfo?.qrCodeImageUrl);
+    setQrImageError(true);
+    e.currentTarget.onerror = null;
+    e.currentTarget.src = QR_PLACEHOLDER;
+  };
+
   const formatNumber = (num: number, decimals = 8): string => {
     if (!Number.isFinite(num) || num === 0) return '0';
     if (num < 0.00001) return num.toExponential(4);
@@ -107,6 +126,13 @@ export default function CheckoutPage() {
   const displayToCoin = checkoutData?.toCoin;
   const displayAmount = checkoutData?.amount || amount || '0';
   const displayTotal = checkoutData?.total || total || 0;
+
+  // Determine QR image to display
+  const qrImageSrc = !qrImageError && walletInfo?.qrCodeImageUrl
+    ? walletInfo.qrCodeImageUrl
+    : (qrImageError ? QR_PLACEHOLDER : '');
+
+  console.log('[Checkout] QR image src to display:', qrImageSrc);
 
   return (
     <div className="min-h-screen bg-gray-900 p-4 md:p-8">
@@ -195,16 +221,14 @@ export default function CheckoutPage() {
           {walletInfo ? (
             <div className="space-y-4">
               {/* QR Code Image */}
-              {walletInfo.qrCodeImageUrl ? (
+              {qrImageSrc ? (
                 <div className="flex justify-center">
                   <div className="bg-white p-4 rounded-xl">
                     <img
-                      src={walletInfo.qrCodeImageUrl}
+                      src={qrImageSrc}
                       alt="Payment QR Code"
                       className="w-48 h-48 object-contain"
-                      onError={(e) => {
-                        (e.target as HTMLImageElement).src = FALLBACK_QR;
-                      }}
+                      onError={handleQrImageError}
                     />
                   </div>
                 </div>
