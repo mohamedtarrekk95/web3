@@ -21,6 +21,7 @@ export async function GET(request: Request) {
     const to = searchParams.get('to');
     const amount = parseFloat(searchParams.get('amount') || '1');
 
+    // Missing params
     if (!from || !to) {
       return NextResponse.json(
         { error: 'Missing "from" or "to" parameter', supportedCoins: getSupportedCoins() },
@@ -28,6 +29,7 @@ export async function GET(request: Request) {
       );
     }
 
+    // Invalid amount
     if (isNaN(amount) || amount <= 0) {
       return NextResponse.json(
         { error: 'Invalid amount' },
@@ -38,6 +40,7 @@ export async function GET(request: Request) {
     const fromSymbol = from.toUpperCase().trim();
     const toSymbol = to.toUpperCase().trim();
 
+    // Invalid symbol check
     if (!isSupportedCoin(fromSymbol)) {
       return NextResponse.json(
         { error: `Unsupported: ${fromSymbol}`, supportedCoins: getSupportedCoins() },
@@ -52,7 +55,7 @@ export async function GET(request: Request) {
       );
     }
 
-    // Same coin
+    // Same coin - instant 1:1
     if (fromSymbol === toSymbol) {
       const rate = applyMargin(1, MARGIN);
       return NextResponse.json({
@@ -68,9 +71,11 @@ export async function GET(request: Request) {
       });
     }
 
+    // Get exchange rate from CoinGecko
     const result = await getExchangeRate(fromSymbol, toSymbol);
     const { rate, fallback, message } = result;
 
+    // Handle zero/invalid rates - return error but with 200 status
     if (rate <= 0 || !Number.isFinite(rate)) {
       return NextResponse.json({
         from: fromSymbol,
@@ -81,7 +86,7 @@ export async function GET(request: Request) {
         total: 0,
         margin: MARGIN * 100,
         validUntil: Date.now() + 60000,
-        error: message,
+        error: message || 'Price temporarily unavailable',
         fallback: true,
         supportedCoins: getSupportedCoins(),
       });
@@ -89,6 +94,23 @@ export async function GET(request: Request) {
 
     const rateWithMargin = applyMargin(rate, MARGIN);
     const total = rateWithMargin * amount;
+
+    // Final validation
+    if (!Number.isFinite(rateWithMargin) || !Number.isFinite(total)) {
+      return NextResponse.json({
+        from: fromSymbol,
+        to: toSymbol,
+        amount,
+        rate: 0,
+        marketRate: 0,
+        total: 0,
+        margin: MARGIN * 100,
+        validUntil: Date.now() + 60000,
+        error: 'Price calculation failed',
+        fallback: true,
+        supportedCoins: getSupportedCoins(),
+      });
+    }
 
     return NextResponse.json({
       from: fromSymbol,
@@ -105,8 +127,14 @@ export async function GET(request: Request) {
 
   } catch (error) {
     console.error('Price API error:', error);
+
+    // Always return 200 with fallback info - never crash
     return NextResponse.json(
-      { error: 'Price service error', fallback: true, supportedCoins: getSupportedCoins() },
+      {
+        error: 'Price service temporarily unavailable',
+        fallback: true,
+        supportedCoins: getSupportedCoins(),
+      },
       { status: 200 }
     );
   }

@@ -12,7 +12,7 @@ interface PriceCache {
   total: number;
   timestamp: number;
   fallback: boolean;
-  source: 'api' | 'preload';
+  source: 'websocket' | 'cache';
 }
 
 interface ExchangeState {
@@ -29,6 +29,9 @@ interface ExchangeState {
   fallback: boolean;
   priceMessage: string;
   priceCache: Record<string, PriceCache>;
+  wsConnected: boolean;
+  wsReconnecting: boolean;
+  livePrices: Record<string, number>;
   setCoins: (coins: Coin[]) => void;
   setFromCoin: (coin: Coin) => void;
   setToCoin: (coin: Coin) => void;
@@ -41,6 +44,10 @@ interface ExchangeState {
   clearPrice: () => void;
   swapCoins: () => void;
   reset: () => void;
+  setWsConnected: (connected: boolean) => void;
+  setWsReconnecting: (reconnecting: boolean) => void;
+  updateLivePrice: (symbol: string, price: number) => void;
+  setLivePrices: (prices: Record<string, number>) => void;
 }
 
 export const useExchangeStore = create<ExchangeState>((set, get) => ({
@@ -57,12 +64,14 @@ export const useExchangeStore = create<ExchangeState>((set, get) => ({
   fallback: false,
   priceMessage: '',
   priceCache: {},
+  wsConnected: false,
+  wsReconnecting: false,
+  livePrices: {},
   setCoins: (coins) => set({ coins }),
   setFromCoin: (fromCoin) => set({ fromCoin }),
   setToCoin: (toCoin) => set({ toCoin }),
   setAmount: (amount) => set({ amount }),
 
-  // setPrice ALSO clears loading to ensure state sync
   setPrice: (price, marketRate, total, priceValidUntil, fallback = false, message = '') =>
     set({ price, marketRate, total, priceValidUntil, fallback, priceMessage: message, loading: false }),
 
@@ -79,13 +88,11 @@ export const useExchangeStore = create<ExchangeState>((set, get) => ({
     return cache[key] || null;
   },
 
-  // Clear price when coins change - prevents stale display
   clearPrice: () => set({ price: 0, total: 0, marketRate: 0, priceValidUntil: null }),
 
   swapCoins: () => set((state) => ({
     fromCoin: state.toCoin,
     toCoin: state.fromCoin,
-    // Reset price when swapping to force reload
     price: 0,
     total: 0,
     marketRate: 0,
@@ -105,48 +112,12 @@ export const useExchangeStore = create<ExchangeState>((set, get) => ({
     fallback: false,
     priceMessage: '',
   }),
+
+  setWsConnected: (wsConnected) => set({ wsConnected }),
+  setWsReconnecting: (wsReconnecting) => set({ wsReconnecting }),
+  updateLivePrice: (symbol, price) =>
+    set((state) => ({
+      livePrices: { ...state.livePrices, [symbol]: price },
+    })),
+  setLivePrices: (prices) => set({ livePrices: prices }),
 }));
-
-/**
- * Preload prices for popular coin pairs on app start
- */
-export async function preloadPrices() {
-  const POPULAR_PAIRS = [
-    { from: 'BTC', to: 'USDT' },
-    { from: 'ETH', to: 'USDT' },
-    { from: 'BNB', to: 'USDT' },
-    { from: 'SOL', to: 'USDT' },
-    { from: 'ADA', to: 'USDT' },
-    { from: 'BTC', to: 'ETH' },
-  ];
-
-  const store = useExchangeStore.getState();
-
-  try {
-    await Promise.all(
-      POPULAR_PAIRS.map(async ({ from, to }) => {
-        try {
-          const res = await fetch(`/api/price?from=${from}&to=${to}&amount=1`);
-          if (res.ok) {
-            const data = await res.json();
-            if (data.rate > 0) {
-              const key = `${from}-${to}`;
-              store.setPriceCache(key, {
-                price: data.rate,
-                marketRate: data.marketRate,
-                total: data.total,
-                timestamp: Date.now(),
-                fallback: data.fallback || false,
-                source: 'preload',
-              });
-            }
-          }
-        } catch {
-          // Silent fail for preloads
-        }
-      })
-    );
-  } catch (error) {
-    console.warn('Preload failed:', error);
-  }
-}
