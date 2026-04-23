@@ -4,6 +4,9 @@ import { useEffect, useState } from 'react';
 import { useParams } from 'next/navigation';
 import QRCode from 'qrcode';
 
+// Fallback icon placeholder
+const FALLBACK_ICON = 'data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHdpZHRoPSI0MCIgaGVpZ2h0PSI0MCI+PHJlY3Qgd2lkdGg9IjQwIiBoZWlnaHQ9IjQwIiBmaWxsPSIjMzMzNjY2Ii8+PHRleHQgeD0iNTAlIiB5PSI1MCUiIHRleHQtYW5jaG9yPSJtaWRkbGUiIGZvbnQtZmFtaWx5PSJBcmlhbCIgZm9udC1zaXplPSIxMiIgZmlsbD0iI2ZmZiI+PC90ZXh0Pjwvc3ZnPg==';
+
 interface Coin {
   symbol: string;
   name: string;
@@ -20,6 +23,9 @@ interface Order {
   status: 'pending' | 'completed';
   createdAt: string;
 }
+
+// Fallback QR placeholder (inline SVG data URI)
+const FALLBACK_QR = 'data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHdpZHRoPSIyMDAiIGhlaWdodD0iMjAwIiB2aWV3Qm94PSIwIDAgMjAwIDIwMCI+PHJlY3Qgd2lkdGg9IjIwMCIgaGVpZ2h0PSIyMDAiIGZpbGw9IiNmZmZmZmYiLz48dGV4dCB4PSI1MCUiIHk9IjUxJSIgdGV4dC1hbmNob3I9Im1pZGRsZSIgZm9udC1mYW1pbHk9IkFyaWFsIiBmb250LXNpemU9IjE0IiBmaWxsPSIjNjY2NjY2Ij5Vc2VyIERhdGE8L3RleHQ+PC9zdmc+';
 
 export default function InvoicePage() {
   const params = useParams();
@@ -143,7 +149,7 @@ export default function InvoicePage() {
                   alt={fromCoinInfo.symbol}
                   className="w-10 h-10 rounded-full"
                   onError={(e) => {
-                    (e.target as HTMLImageElement).src = `https://via.placeholder.com/40?text=${fromCoinInfo.symbol}`;
+                    (e.target as HTMLImageElement).src = FALLBACK_ICON;
                   }}
                 />
                 <div>
@@ -170,7 +176,7 @@ export default function InvoicePage() {
                   alt={toCoinInfo.symbol}
                   className="w-10 h-10 rounded-full"
                   onError={(e) => {
-                    (e.target as HTMLImageElement).src = `https://via.placeholder.com/40?text=${toCoinInfo.symbol}`;
+                    (e.target as HTMLImageElement).src = FALLBACK_ICON;
                   }}
                 />
                 <div>
@@ -189,9 +195,24 @@ export default function InvoicePage() {
             <div className="mt-8 p-6 bg-gray-800/30 border border-gray-700 rounded-xl">
               <div className="text-center mb-4">
                 <div className="text-sm text-gray-400 mb-2">Send {order.amountSent} {order.fromCoin} to this address</div>
-                {qrCodeUrl && (
+                {qrCodeUrl ? (
                   <div className="bg-white p-4 rounded-xl inline-block">
-                    <img src={qrCodeUrl} alt="QR Code" className="w-40 h-40" />
+                    <img
+                      src={qrCodeUrl}
+                      alt="Payment QR Code"
+                      className="w-40 h-40"
+                      onError={(e) => {
+                        (e.target as HTMLImageElement).src = FALLBACK_QR;
+                      }}
+                    />
+                  </div>
+                ) : (
+                  <div className="bg-white p-4 rounded-xl inline-block">
+                    <img
+                      src={FALLBACK_QR}
+                      alt="Payment QR Code"
+                      className="w-40 h-40"
+                    />
                   </div>
                 )}
               </div>

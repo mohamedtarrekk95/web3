@@ -32,7 +32,7 @@ export function useAuth() {
       });
       const data = await res.json();
       if (res.ok) {
-        setUser({ userId: data.userId, email: data.email, name: data.name });
+        setUser({ userId: data.userId, email: data.email, name: data.name, role: data.role || 'user' });
         return { success: true };
       }
       return { success: false, error: data.error };

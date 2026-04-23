@@ -31,7 +31,7 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'Invalid credentials' }, { status: 401 });
     }
 
-    const token = signToken({ userId: user._id.toString(), email: user.email });
+    const token = signToken({ userId: user._id.toString(), email: user.email, role: user.role });
     await setAuthCookie(token);
 
     return NextResponse.json({
@@ -39,6 +39,7 @@ export async function POST(request: NextRequest) {
       userId: user._id,
       email: user.email,
       name: user.name,
+      role: user.role,
     });
   } catch (error) {
     console.error('Login error:', error);
