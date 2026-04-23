@@ -2,6 +2,7 @@
 
 import { useEffect, useState, use } from 'react';
 import { useRouter } from 'next/navigation';
+import { useAuth } from '@/lib/useAuth';
 
 interface Order {
   orderId: string;
@@ -32,6 +33,7 @@ const QR_PLACEHOLDER = '/qr-placeholder.svg';
 export default function OrderDetailsPage({ params }: { params: Promise<{ id: string }> }) {
   const resolvedParams = use(params);
   const router = useRouter();
+  const { user, isAdmin, loading: authLoading } = useAuth();
   const [order, setOrder] = useState<Order | null>(null);
   const [settings, setSettings] = useState<Settings>({});
   const [loading, setLoading] = useState(true);
@@ -170,7 +172,7 @@ export default function OrderDetailsPage({ params }: { params: Promise<{ id: str
     return methods[code] || code;
   };
 
-  if (loading) {
+  if (loading || authLoading) {
     return (
       <div className="min-h-screen flex items-center justify-center bg-gray-900">
         <div className="w-12 h-12 border-4 border-cyan-500 border-t-transparent rounded-full animate-spin" />
@@ -296,23 +298,25 @@ export default function OrderDetailsPage({ params }: { params: Promise<{ id: str
           </div>
         </div>
 
-        {/* Admin Note - Live Section */}
-        <div className="bg-gray-900/80 backdrop-blur-xl border border-gray-800 rounded-2xl p-6 mb-6">
-          <div className="flex items-center justify-between mb-2">
-            <h3 className="text-sm text-gray-400 font-medium">Admin Note</h3>
-            {(isP2PSell || isP2PBuy) && (
-              <span className="flex items-center gap-1 text-xs text-gray-500">
-                <span className="w-2 h-2 bg-green-500 rounded-full animate-pulse" />
-                Live
-              </span>
+        {/* Admin Note - Admin Only */}
+        {isAdmin && (
+          <div className="bg-gray-900/80 backdrop-blur-xl border border-gray-800 rounded-2xl p-6 mb-6">
+            <div className="flex items-center justify-between mb-2">
+              <h3 className="text-sm text-gray-400 font-medium">Admin Note</h3>
+              {(isP2PSell || isP2PBuy) && (
+                <span className="flex items-center gap-1 text-xs text-gray-500">
+                  <span className="w-2 h-2 bg-green-500 rounded-full animate-pulse" />
+                  Live
+                </span>
+              )}
+            </div>
+            {order.adminNote ? (
+              <p className="text-white">{order.adminNote}</p>
+            ) : (
+              <p className="text-gray-500 italic">No admin note yet</p>
             )}
           </div>
-          {order.adminNote ? (
-            <p className="text-white">{order.adminNote}</p>
-          ) : (
-            <p className="text-gray-500 italic">No admin note yet</p>
-          )}
-        </div>
+        )}
 
         {/* P2P Sell: USDT Payment QR Code & Wallet */}
         {isP2PSell && (

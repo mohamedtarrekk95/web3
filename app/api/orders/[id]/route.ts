@@ -41,7 +41,6 @@ export async function GET(
       walletAddress: order.walletAddress,
       receivingAddress: order.receivingAddress || '',
       status: order.status,
-      adminNote: order.adminNote || '',
       paymentMethod: order.paymentMethod || '',
       telegramUsername: order.telegramUsername || '',
       txid: order.txid || '',
