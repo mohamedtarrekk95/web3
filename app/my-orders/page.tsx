@@ -1,7 +1,6 @@
 'use client';
 
 import { useEffect, useState } from 'react';
-import { useAuth } from '@/lib/useAuth';
 import { ProtectedRoute } from '@/components/ProtectedRoute';
 
 interface Order {
@@ -16,7 +15,6 @@ interface Order {
 }
 
 function OrdersContent() {
-  const { user } = useAuth();
   const [orders, setOrders] = useState<Order[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
@@ -24,7 +22,7 @@ function OrdersContent() {
   useEffect(() => {
     async function fetchOrders() {
       try {
-        const res = await fetch('/api/orders');
+        const res = await fetch('/api/orders', { credentials: 'include' });
         if (res.ok) {
           const data = await res.json();
           setOrders(data.orders || []);
@@ -74,7 +72,6 @@ function OrdersContent() {
       <div className="max-w-4xl mx-auto px-4">
         <div className="flex items-center justify-between mb-8">
           <h1 className="text-2xl font-bold text-white">My Orders</h1>
-          <span className="text-gray-400">Welcome, {user?.name}</span>
         </div>
 
         {error && (

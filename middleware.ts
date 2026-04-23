@@ -41,7 +41,7 @@ export function middleware(request: NextRequest) {
     }
   }
 
-  // Protect /my-orders route
+  // Protect /my-orders - ANY authenticated user can access
   if (pathname.startsWith('/my-orders')) {
     const token = request.cookies.get('auth_token')?.value;
 
@@ -56,6 +56,7 @@ export function middleware(request: NextRequest) {
       response.cookies.delete('auth_token');
       return response;
     }
+    // If token is valid, allow access (no role check needed for /my-orders)
   }
 
   return NextResponse.next();

@@ -1,59 +1,102 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useEffect, useCallback, useState } from 'react';
 import { useRouter, usePathname } from 'next/navigation';
 import { useAuthStore } from '@/store/authStore';
 
-interface ProtectedRouteProps {
-  children: React.ReactNode;
-  requiredRole?: 'user' | 'admin';
-  redirectTo?: string;
-}
-
 /**
- * ProtectedRoute - Auth guard that waits for hydration
+ * ProtectedRoute - Clean separation of auth vs role checks
  *
- * Key principles:
- * 1. NEVER redirect until hydration is complete
- * 2. NEVER redirect until auth check is complete
- * 3. Always pass loading state to prevent flicker
+ * AUTH CHECK (all protected routes):
+ * - If NOT logged in → redirect to /login
+ * - If logged in → allow access
+ *
+ * ROLE CHECK (admin only):
+ * - If requiredRole="admin" AND user.role !== "admin" → redirect to /
+ * - If requiredRole="user" → no role restriction (any user can access)
  */
 export function ProtectedRoute({
   children,
   requiredRole = 'user',
   redirectTo = '/login',
-}: ProtectedRouteProps) {
+}: {
+  children: React.ReactNode;
+  requiredRole?: 'user' | 'admin';
+  redirectTo?: string;
+}) {
   const router = useRouter();
   const pathname = usePathname();
-  const { user, loading, hydrated } = useAuthStore();
-  const [isReady, setIsReady] = useState(false);
+  const { user, loading, hydrated, setUser, setLoading, setHydrated } = useAuthStore();
+  const [initialized, setInitialized] = useState(false);
 
-  // Wait for both hydration AND auth check to complete
+  // Check auth by fetching user from /api/auth/me
+  const checkAuth = useCallback(async () => {
+    setLoading(true);
+    try {
+      const res = await fetch('/api/auth/me', { credentials: 'include' });
+      const data = await res.json();
+      if (data.authenticated && data.user) {
+        setUser({
+          userId: data.user.userId,
+          email: data.user.email,
+          name: data.user.name,
+          role: data.user.role || 'user',
+        });
+      } else {
+        setUser(null);
+      }
+    } catch {
+      setUser(null);
+    }
+  }, [setUser, setLoading]);
+
+  // Set hydrated on mount
+  useEffect(() => {
+    setHydrated();
+  }, [setHydrated]);
+
+  // Mark as initialized after mount
+  useEffect(() => {
+    setInitialized(true);
+  }, []);
+
+  // Check auth on mount after hydration
   useEffect(() => {
     if (!hydrated) return;
-    if (loading) return;
-    setIsReady(true);
-  }, [hydrated, loading]);
+    checkAuth();
+  }, [hydrated]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  // Handle redirect AFTER ready state is determined
+  // Redirect logic - ONLY runs after auth is fully loaded
   useEffect(() => {
-    if (!isReady) return;
+    // Don't run until:
+    // 1. Component has mounted (initialized)
+    // 2. Store is hydrated
+    // 3. Auth check has completed (loading is false)
+    if (!initialized || !hydrated || loading) return;
 
+    // At this point: we know if user is logged in or not
     if (!user) {
+      // User is NOT logged in → redirect to login
       const loginUrl = new URL(redirectTo, window.location.origin);
       loginUrl.searchParams.set('returnUrl', pathname);
       router.replace(loginUrl.toString());
       return;
     }
 
+    // User IS logged in
     if (requiredRole === 'admin' && user.role !== 'admin') {
+      // Admin route but user is NOT admin → redirect to home
       router.replace('/');
       return;
     }
-  }, [isReady, user, requiredRole, redirectTo, pathname, router]);
 
-  // Show loading spinner while NOT ready
-  if (!isReady) {
+    // For requiredRole='user': no additional role check needed
+    // User is logged in → allow access (render children)
+
+  }, [initialized, hydrated, loading, user, requiredRole, redirectTo, pathname, router]);
+
+  // Loading state: show spinner until auth is checked
+  if (!initialized || !hydrated || loading) {
     return (
       <div className="min-h-screen flex items-center justify-center bg-gray-900">
         <div className="w-8 h-8 border-2 border-cyan-500 border-t-transparent rounded-full animate-spin" />
@@ -61,10 +104,16 @@ export function ProtectedRoute({
     );
   }
 
-  // Don't render anything if unauthorized (redirect is in progress)
-  if (!user || (requiredRole === 'admin' && user.role !== 'admin')) {
+  // Auth failed → don't render anything (redirect in progress)
+  if (!user) {
     return null;
   }
 
+  // Admin route but user is not admin → don't render (redirect in progress)
+  if (requiredRole === 'admin' && user.role !== 'admin') {
+    return null;
+  }
+
+  // User is authorized → render protected content
   return <>{children}</>;
 }
