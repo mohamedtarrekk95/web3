@@ -24,17 +24,31 @@ export async function PATCH(
 
     console.log('[Admin Order Update] Order:', id, 'New status:', status, 'Note:', adminNote);
 
-    const validStatuses = ['pending', 'accepted', 'rejected', 'completed', 'cancelled'];
-    if (!status || !validStatuses.includes(status)) {
-      return NextResponse.json(
-        { error: 'Invalid status. Must be: pending, accepted, rejected, completed, or cancelled' },
-        { status: 400 }
-      );
+    const updateData: any = {};
+
+    // Only validate status if it's being updated
+    if (status !== undefined) {
+      const validStatuses = ['pending', 'accepted', 'rejected', 'completed', 'cancelled'];
+      if (!status || !validStatuses.includes(status)) {
+        return NextResponse.json(
+          { error: 'Invalid status. Must be: pending, accepted, rejected, completed, or cancelled' },
+          { status: 400 }
+        );
+      }
+      updateData.status = status;
     }
 
-    const updateData: any = { status };
+    // Only update adminNote if it's provided
     if (adminNote !== undefined) {
       updateData.adminNote = adminNote;
+    }
+
+    // Must have at least one field to update
+    if (Object.keys(updateData).length === 0) {
+      return NextResponse.json(
+        { error: 'No valid update fields provided' },
+        { status: 400 }
+      );
     }
 
     console.log('[Admin Order Update] Update data:', updateData);
