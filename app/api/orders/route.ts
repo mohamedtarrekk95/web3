@@ -117,6 +117,7 @@ export async function GET(request: NextRequest) {
         walletAddress: o.walletAddress,
         receivingAddress: o.receivingAddress || '',
         status: o.status,
+        adminNote: o.adminNote || '',
         paymentMethod: o.paymentMethod || '',
         telegramUsername: o.telegramUsername || '',
         createdAt: o.createdAt,
