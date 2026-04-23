@@ -3,12 +3,61 @@
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { useAuth } from '@/lib/useAuth';
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
+
+// Google Translate types
+declare global {
+  interface Window {
+    google: {
+      translate: {
+        TranslateElement: {
+          InlineLayout: {
+            SIMPLE: number;
+          };
+          new (config: {
+            pageLanguage: string;
+            includedLanguages: string;
+            layout: number;
+          }, elementId: string): void;
+        };
+      };
+    };
+    googleTranslateElementInit: () => void;
+  }
+}
 
 export default function Navbar() {
   const router = useRouter();
   const { user, isAuthenticated, logout, loading } = useAuth();
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
+  const [mounted, setMounted] = useState(false);
+
+  useEffect(() => {
+    setMounted(true);
+    // Load Google Translate element
+    if (!window.googleTranslateElementInit) {
+      const addScript = document.createElement('script');
+      addScript.src = '//translate.google.com/translate_a/element.js?cb=googleTranslateElementInit';
+      document.head.appendChild(addScript);
+      window.googleTranslateElementInit = () => {
+        new window.google.translate.TranslateElement({
+          pageLanguage: 'en',
+          includedLanguages: 'en,ar,es,fr,de,zh-CN,ru,pt,ja,ko',
+          layout: window.google.translate.TranslateElement.InlineLayout.SIMPLE,
+        }, 'google_translate_element');
+      };
+    }
+  }, []);
+
+  const handleLanguageChange = (lang: string) => {
+    if (window.google && window.google.translate) {
+      const select = document.querySelector('.goog-te-combo') as HTMLSelectElement;
+      if (select) {
+        select.value = lang;
+        select.dispatchEvent(new Event('change'));
+      }
+    }
+  };
 
   const handleLogout = async () => {
     await logout();
@@ -50,6 +99,12 @@ export default function Navbar() {
                 >
                   P2P
                 </Link>
+                {/* Google Translate */}
+                {mounted && (
+                  <div className="relative">
+                    <div id="google_translate_element" className="translate-widget" />
+                  </div>
+                )}
                 <Link
                   href="/my-orders"
                   className="px-4 py-2 text-sm text-gray-300 hover:text-white transition-colors"

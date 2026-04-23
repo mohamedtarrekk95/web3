@@ -13,6 +13,11 @@ const SETTINGS_KEYS = [
   { key: 'p2pPaymentInstructions', label: 'Payment Instructions (P2P Buy)', placeholder: 'Contact us on Telegram for payment instructions...' },
 ];
 
+const ANNOUNCEMENT_KEYS = [
+  { key: 'announcementMessage', label: 'Announcement Message', placeholder: 'Enter your announcement text here...', multiline: true },
+  { key: 'announcementColor', label: 'Background Color', placeholder: '#374151', type: 'color' },
+];
+
 export default function AdminSettings() {
   const { isAuthenticated, loading } = useAuth();
   const [settings, setSettings] = useState<Record<string, string>>({});
@@ -215,6 +220,88 @@ export default function AdminSettings() {
                   </AdminRoute>
                 </div>
               </div>
+            </div>
+          </div>
+
+          {/* Announcement Banner */}
+          <div className="bg-gray-900/80 backdrop-blur-xl border border-gray-800 rounded-2xl p-6">
+            <div className="flex items-center justify-between mb-6">
+              <h2 className="text-lg font-semibold text-white">Homepage Announcement Banner</h2>
+              <div className="flex items-center gap-3">
+                <span className="text-sm text-gray-400">Enable</span>
+                <button
+                  onClick={() => {
+                    const newValue = settings.announcementEnabled === 'true' ? 'false' : 'true';
+                    saveSetting('announcementEnabled', newValue);
+                    setSettings((prev) => ({ ...prev, announcementEnabled: newValue }));
+                  }}
+                  className={`relative inline-flex h-8 w-14 items-center rounded-full transition-colors ${
+                    settings.announcementEnabled === 'true' ? 'bg-green-500' : 'bg-gray-600'
+                  }`}
+                >
+                  <span
+                    className={`inline-block h-6 w-6 transform rounded-full bg-white transition-transform ${
+                      settings.announcementEnabled === 'true' ? 'translate-x-7' : 'translate-x-1'
+                    }`}
+                  />
+                </button>
+              </div>
+            </div>
+            <div className="space-y-4">
+              {ANNOUNCEMENT_KEYS.filter(k => k.key === 'announcementMessage').map((setting) => (
+                <div key={setting.key}>
+                  <label className="block text-sm text-gray-400 mb-2">{setting.label}</label>
+                  <div className="space-y-3">
+                    <textarea
+                      value={settings[setting.key] || ''}
+                      onChange={(e) => handleChange(setting.key, e.target.value)}
+                      placeholder={setting.placeholder}
+                      rows={3}
+                      className="w-full px-4 py-3 bg-gray-800/50 border border-gray-700 rounded-xl text-white placeholder-gray-500 focus:outline-none focus:border-cyan-500 transition-colors resize-none"
+                    />
+                    <div className="flex justify-end">
+                      <AdminRoute fallback={<span className="text-gray-500 text-sm">Admin access required</span>}>
+                        <button
+                          onClick={() => handleSave(setting.key)}
+                          disabled={saving}
+                          className="px-6 py-3 bg-gradient-to-r from-cyan-500 to-blue-500 hover:from-cyan-400 hover:to-blue-400 disabled:from-gray-700 disabled:to-gray-700 text-white font-medium rounded-xl transition-all disabled:cursor-not-allowed"
+                        >
+                          {saving ? 'Saving...' : 'Save'}
+                        </button>
+                      </AdminRoute>
+                    </div>
+                  </div>
+                </div>
+              ))}
+              {ANNOUNCEMENT_KEYS.filter(k => k.key === 'announcementColor').map((setting) => (
+                <div key={setting.key}>
+                  <label className="block text-sm text-gray-400 mb-2">{setting.label}</label>
+                  <div className="flex gap-3">
+                    <input
+                      type="color"
+                      value={settings[setting.key] || '#374151'}
+                      onChange={(e) => handleChange(setting.key, e.target.value)}
+                      className="h-12 w-20 rounded-xl border border-gray-700 cursor-pointer"
+                    />
+                    <input
+                      type="text"
+                      value={settings[setting.key] || ''}
+                      onChange={(e) => handleChange(setting.key, e.target.value)}
+                      placeholder={setting.placeholder}
+                      className="flex-1 px-4 py-3 bg-gray-800/50 border border-gray-700 rounded-xl text-white placeholder-gray-500 focus:outline-none focus:border-cyan-500 transition-colors"
+                    />
+                    <AdminRoute fallback={<span className="text-gray-500 text-sm">Admin</span>}>
+                      <button
+                        onClick={() => handleSave(setting.key)}
+                        disabled={saving}
+                        className="px-6 py-3 bg-gradient-to-r from-cyan-500 to-blue-500 hover:from-cyan-400 hover:to-blue-400 disabled:from-gray-700 disabled:to-gray-700 text-white font-medium rounded-xl transition-all disabled:cursor-not-allowed"
+                      >
+                        {saving ? '...' : 'Save'}
+                      </button>
+                    </AdminRoute>
+                  </div>
+                </div>
+              ))}
             </div>
           </div>
         </div>
