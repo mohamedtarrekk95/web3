@@ -230,10 +230,10 @@ export default function AdminSettings() {
               <div className="flex items-center gap-3">
                 <span className="text-sm text-gray-400">Enable</span>
                 <button
-                  onClick={() => {
+                  onClick={async () => {
                     const newValue = settings.announcementEnabled === 'true' ? 'false' : 'true';
-                    saveSetting('announcementEnabled', newValue);
                     setSettings((prev) => ({ ...prev, announcementEnabled: newValue }));
+                    await saveSetting('announcementEnabled', newValue);
                   }}
                   className={`relative inline-flex h-8 w-14 items-center rounded-full transition-colors ${
                     settings.announcementEnabled === 'true' ? 'bg-green-500' : 'bg-gray-600'
