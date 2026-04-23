@@ -8,7 +8,9 @@ export interface IOrder extends Document {
   amountSent: number;
   amountReceived: number;
   walletAddress: string;
-  status: 'pending' | 'completed' | 'cancelled';
+  receivingAddress: string;
+  status: 'pending' | 'accepted' | 'rejected' | 'completed' | 'cancelled';
+  adminNote: string;
   createdAt: Date;
 }
 
@@ -20,7 +22,9 @@ const OrderSchema = new Schema<IOrder>({
   amountSent: { type: Number, required: true },
   amountReceived: { type: Number, required: true },
   walletAddress: { type: String, required: true },
-  status: { type: String, enum: ['pending', 'completed', 'cancelled'], default: 'pending' },
+  receivingAddress: { type: String, default: '' },
+  status: { type: String, enum: ['pending', 'accepted', 'rejected', 'completed', 'cancelled'], default: 'pending' },
+  adminNote: { type: String, default: '' },
   createdAt: { type: Date, default: Date.now },
 });
 

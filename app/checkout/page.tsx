@@ -79,7 +79,7 @@ export default function CheckoutPage() {
           toCoin: checkoutData.toCoin?.symbol,
           amountSent: parseFloat(checkoutData.amount),
           amountReceived: checkoutData.total,
-          walletAddress: userAddress.trim(),
+          receivingAddress: userAddress.trim(),
         }),
       });
 

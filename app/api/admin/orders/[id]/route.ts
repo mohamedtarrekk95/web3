@@ -20,17 +20,30 @@ export async function PATCH(
     await connectDB();
     const { id } = await params;
     const body = await request.json();
-    const { status } = body;
+    const { status, adminNote } = body;
 
-    console.log('[Admin Order Update] Order:', id, 'New status:', status);
+    console.log('[Admin Order Update] Order:', id, 'New status:', status, 'Note:', adminNote);
 
-    if (!status || !['pending', 'completed', 'cancelled'].includes(status)) {
-      return NextResponse.json({ error: 'Invalid status. Must be: pending, completed, or cancelled' }, { status: 400 });
+    // Validate status - support old values (completed/cancelled) and new (accepted/rejected)
+    const validStatuses = ['pending', 'accepted', 'rejected', 'completed', 'cancelled'];
+    if (!status || !validStatuses.includes(status)) {
+      return NextResponse.json(
+        { error: 'Invalid status. Must be: pending, accepted, rejected, completed, or cancelled' },
+        { status: 400 }
+      );
     }
+
+    // Build update object
+    const updateData: any = { status };
+    if (adminNote !== undefined) {
+      updateData.adminNote = adminNote;
+    }
+
+    console.log('[Admin Order Update] Update data:', updateData);
 
     const order = await Order.findOneAndUpdate(
       { orderId: id },
-      { status },
+      updateData,
       { new: true }
     );
 
@@ -39,8 +52,22 @@ export async function PATCH(
       return NextResponse.json({ error: 'Order not found' }, { status: 404 });
     }
 
-    console.log('[Admin Order Update] Order updated:', order.orderId, 'Status:', order.status);
-    return NextResponse.json({ success: true, order });
+    console.log('[Admin Order Update] Order updated:', order.orderId, 'Status:', order.status, 'Note:', order.adminNote);
+    return NextResponse.json({
+      success: true,
+      order: {
+        orderId: order.orderId,
+        fromCoin: order.fromCoin,
+        toCoin: order.toCoin,
+        amountSent: order.amountSent,
+        amountReceived: order.amountReceived,
+        walletAddress: order.walletAddress,
+        receivingAddress: order.receivingAddress || '',
+        status: order.status,
+        adminNote: order.adminNote || '',
+        createdAt: order.createdAt,
+      }
+    });
   } catch (error: any) {
     console.error('[Admin Order Update] Error:', error);
     return NextResponse.json({ error: error.message || 'Failed to update order' }, { status: 500 });

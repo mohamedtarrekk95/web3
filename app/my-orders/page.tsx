@@ -10,7 +10,9 @@ interface Order {
   amountSent: number;
   amountReceived: number;
   walletAddress: string;
-  status: 'pending' | 'completed' | 'cancelled';
+  receivingAddress: string;
+  status: 'pending' | 'accepted' | 'rejected' | 'completed' | 'cancelled';
+  adminNote: string;
   createdAt: string;
 }
 
@@ -48,10 +50,14 @@ function OrdersContent() {
     return new Date(dateStr).toLocaleString();
   };
 
-  const getStatusColor = (status: string) => {
+  const getStatusBadge = (status: string) => {
     switch (status) {
-      case 'completed':
+      case 'accepted':
         return 'bg-green-500/20 text-green-400 border-green-500';
+      case 'rejected':
+        return 'bg-red-500/20 text-red-400 border-red-500';
+      case 'completed':
+        return 'bg-blue-500/20 text-blue-400 border-blue-500';
       case 'cancelled':
         return 'bg-red-500/20 text-red-400 border-red-500';
       default:
@@ -69,7 +75,7 @@ function OrdersContent() {
 
   return (
     <div className="min-h-screen bg-gray-900 py-8">
-      <div className="max-w-4xl mx-auto px-4">
+      <div className="max-w-5xl mx-auto px-4">
         <div className="flex items-center justify-between mb-8">
           <h1 className="text-2xl font-bold text-white">My Orders</h1>
         </div>
@@ -88,39 +94,62 @@ function OrdersContent() {
             </a>
           </div>
         ) : (
-          <div className="bg-gray-800/80 border border-gray-700 rounded-xl overflow-hidden">
-            <table className="w-full">
-              <thead>
-                <tr className="border-b border-gray-700">
-                  <th className="px-4 py-3 text-left text-sm font-medium text-gray-400">Order ID</th>
-                  <th className="px-4 py-3 text-left text-sm font-medium text-gray-400">Pair</th>
-                  <th className="px-4 py-3 text-right text-sm font-medium text-gray-400">Amount</th>
-                  <th className="px-4 py-3 text-right text-sm font-medium text-gray-400">Rate</th>
-                  <th className="px-4 py-3 text-center text-sm font-medium text-gray-400">Status</th>
-                  <th className="px-4 py-3 text-left text-sm font-medium text-gray-400">Date</th>
-                </tr>
-              </thead>
-              <tbody>
-                {orders.map((order) => (
-                  <tr key={order.orderId} className="border-b border-gray-700/50 hover:bg-gray-700/30">
-                    <td className="px-4 py-4 text-sm text-cyan-500 font-mono">{order.orderId}</td>
-                    <td className="px-4 py-4 text-sm text-white">{order.fromCoin}/{order.toCoin}</td>
-                    <td className="px-4 py-4 text-sm text-white text-right tabular-nums">
-                      {formatNumber(order.amountSent)} {order.fromCoin}
-                    </td>
-                    <td className="px-4 py-4 text-sm text-gray-300 text-right tabular-nums">
-                      {formatNumber(order.amountReceived)} {order.toCoin}
-                    </td>
-                    <td className="px-4 py-4 text-center">
-                      <span className={`px-2 py-1 text-xs rounded-full border ${getStatusColor(order.status)}`}>
-                        {order.status}
-                      </span>
-                    </td>
-                    <td className="px-4 py-4 text-sm text-gray-400">{formatDate(order.createdAt)}</td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
+          <div className="space-y-4">
+            {orders.map((order) => (
+              <div
+                key={order.orderId}
+                className="bg-gray-800/80 border border-gray-700 rounded-xl p-6"
+              >
+                {/* Order Header */}
+                <div className="flex items-center justify-between mb-4">
+                  <div className="flex items-center gap-4">
+                    <div>
+                      <div className="text-xs text-gray-400 mb-1">Order ID</div>
+                      <div className="text-cyan-500 font-mono text-sm">{order.orderId}</div>
+                    </div>
+                    <div>
+                      <div className="text-xs text-gray-400 mb-1">Pair</div>
+                      <div className="text-white font-medium">{order.fromCoin} → {order.toCoin}</div>
+                    </div>
+                  </div>
+                  <span className={`px-3 py-1 rounded-full text-xs font-medium border ${getStatusBadge(order.status)}`}>
+                    {order.status}
+                  </span>
+                </div>
+
+                {/* Amount Details */}
+                <div className="grid md:grid-cols-3 gap-4 mb-4">
+                  <div className="p-3 bg-gray-900/50 rounded-lg">
+                    <div className="text-xs text-gray-400 mb-1">Amount Sent</div>
+                    <div className="text-white font-medium">{formatNumber(order.amountSent)} {order.fromCoin}</div>
+                  </div>
+                  <div className="p-3 bg-gray-900/50 rounded-lg">
+                    <div className="text-xs text-gray-400 mb-1">Amount Received</div>
+                    <div className="text-cyan-400 font-medium">{formatNumber(order.amountReceived)} {order.toCoin}</div>
+                  </div>
+                  <div className="p-3 bg-gray-900/50 rounded-lg">
+                    <div className="text-xs text-gray-400 mb-1">Date</div>
+                    <div className="text-gray-300 text-sm">{formatDate(order.createdAt)}</div>
+                  </div>
+                </div>
+
+                {/* Receiving Address */}
+                {order.receivingAddress && (
+                  <div className="mb-4 p-3 bg-gray-900/50 rounded-lg">
+                    <div className="text-xs text-gray-400 mb-1">Your Receiving Address</div>
+                    <div className="text-green-400 font-mono text-sm break-all">{order.receivingAddress}</div>
+                  </div>
+                )}
+
+                {/* Admin Note */}
+                {order.adminNote && (
+                  <div className="mb-4 p-3 bg-cyan-500/10 border border-cyan-500/30 rounded-lg">
+                    <div className="text-xs text-cyan-400 mb-1">Note from Admin</div>
+                    <div className="text-white text-sm">{order.adminNote}</div>
+                  </div>
+                )}
+              </div>
+            ))}
           </div>
         )}
       </div>

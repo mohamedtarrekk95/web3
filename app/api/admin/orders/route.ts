@@ -7,7 +7,6 @@ export async function GET() {
   console.log('[Admin Orders] GET request');
 
   try {
-    // Auth check
     const admin = await getAdminFromCookies();
     if (!admin) {
       console.log('[Admin Orders] Not authenticated as admin');
@@ -15,14 +14,24 @@ export async function GET() {
     }
     console.log('[Admin Orders] Admin authenticated:', admin.email);
 
-    // Fetch orders
     await connectDB();
     const orders = await Order.find().sort({ createdAt: -1 });
     console.log('[Admin Orders] Found', orders.length, 'orders');
 
     return NextResponse.json({
       success: true,
-      orders: orders
+      orders: orders.map((o) => ({
+        orderId: o.orderId,
+        fromCoin: o.fromCoin,
+        toCoin: o.toCoin,
+        amountSent: o.amountSent,
+        amountReceived: o.amountReceived,
+        walletAddress: o.walletAddress,
+        receivingAddress: o.receivingAddress || '',
+        status: o.status,
+        adminNote: o.adminNote || '',
+        createdAt: o.createdAt,
+      })),
     });
   } catch (error: any) {
     console.error('[Admin Orders] Error:', error);

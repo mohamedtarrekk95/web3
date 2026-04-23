@@ -22,7 +22,7 @@ export async function POST(request: NextRequest) {
   try {
     await connectDB();
     const body = await request.json();
-    const { fromCoin, toCoin, amountSent, amountReceived } = body;
+    const { fromCoin, toCoin, amountSent, amountReceived, receivingAddress } = body;
 
     if (!fromCoin || !toCoin || !amountSent || !amountReceived) {
       return NextResponse.json({ error: 'Missing required fields' }, { status: 400 });
@@ -44,7 +44,9 @@ export async function POST(request: NextRequest) {
       amountSent,
       amountReceived,
       walletAddress,
+      receivingAddress: receivingAddress || '',
       status: 'pending',
+      adminNote: '',
     });
 
     await order.save();
@@ -56,7 +58,9 @@ export async function POST(request: NextRequest) {
       amountSent: order.amountSent,
       amountReceived: order.amountReceived,
       walletAddress: order.walletAddress,
+      receivingAddress: order.receivingAddress,
       status: order.status,
+      adminNote: order.adminNote,
       createdAt: order.createdAt,
     });
   } catch (error) {
@@ -79,6 +83,7 @@ export async function GET(request: NextRequest) {
       .limit(50);
 
     return NextResponse.json({
+      success: true,
       orders: orders.map((o) => ({
         orderId: o.orderId,
         fromCoin: o.fromCoin,
@@ -86,7 +91,9 @@ export async function GET(request: NextRequest) {
         amountSent: o.amountSent,
         amountReceived: o.amountReceived,
         walletAddress: o.walletAddress,
+        receivingAddress: o.receivingAddress || '',
         status: o.status,
+        adminNote: o.adminNote || '',
         createdAt: o.createdAt,
       })),
     });
