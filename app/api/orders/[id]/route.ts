@@ -2,6 +2,7 @@ import { NextResponse } from 'next/server';
 import connectDB from '@/lib/mongodb';
 import Order from '@/lib/models/Order';
 import { apiRateLimiter } from '@/lib/rateLimit';
+import { getCurrentUser } from '@/lib/auth';
 
 export async function GET(
   request: Request,
@@ -31,7 +32,11 @@ export async function GET(
       return NextResponse.json({ error: 'Order not found' }, { status: 404 });
     }
 
-    return NextResponse.json({
+    // Check if user is admin to include adminNote
+    const user = await getCurrentUser();
+    const isAdmin = user?.role === 'admin';
+
+    const response: Record<string, any> = {
       orderId: order.orderId,
       type: order.type,
       fromCoin: order.fromCoin,
@@ -45,7 +50,14 @@ export async function GET(
       telegramUsername: order.telegramUsername || '',
       txid: order.txid || '',
       createdAt: order.createdAt,
-    });
+    };
+
+    // Only include adminNote for admin users
+    if (isAdmin) {
+      response.adminNote = order.adminNote || '';
+    }
+
+    return NextResponse.json(response);
   } catch (error) {
     console.error('Order fetch error:', error);
     return NextResponse.json({ error: 'Failed to fetch order' }, { status: 500 });
