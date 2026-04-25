@@ -55,6 +55,8 @@ interface SwapState {
   isSwappingCoins: boolean;
   executionStatus: 'idle' | 'confirming' | 'processing' | 'success' | 'error';
   txHash: string | null;
+  walletConnected: boolean;
+  walletAddress: string | null;
 
   // Actions
   setCoins: (coins: Coin[]) => void;
@@ -71,6 +73,7 @@ interface SwapState {
   reset: () => void;
   setExecutionStatus: (status: SwapState['executionStatus']) => void;
   setTxHash: (hash: string | null) => void;
+  setWalletState: (connected: boolean, address: string | null) => void;
 }
 
 export const useSwapStore = create<SwapState>((set, get) => ({
@@ -85,6 +88,8 @@ export const useSwapStore = create<SwapState>((set, get) => ({
   isSwappingCoins: false,
   executionStatus: 'idle',
   txHash: null,
+  walletConnected: false,
+  walletAddress: null,
 
   setCoins: (coins) => set({ coins }),
   setFromCoin: (fromCoin) => {
@@ -124,4 +129,5 @@ export const useSwapStore = create<SwapState>((set, get) => ({
     }),
   setExecutionStatus: (executionStatus) => set({ executionStatus }),
   setTxHash: (txHash) => set({ txHash }),
+  setWalletState: (connected, address) => set({ walletConnected: connected, walletAddress: address }),
 }));

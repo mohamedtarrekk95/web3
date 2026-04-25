@@ -18,6 +18,7 @@ export interface IOrder extends Document {
   createdAt: Date;
   platformFee?: number;
   platformFeeCurrency?: string;
+  platformFeeWallet?: string;
   aggregator?: string;
 }
 
@@ -39,6 +40,7 @@ const OrderSchema = new Schema<IOrder>({
   createdAt: { type: Date, default: Date.now },
   platformFee: { type: Number, default: 0 },
   platformFeeCurrency: { type: String, default: '' },
+  platformFeeWallet: { type: String, default: '' },
   aggregator: { type: String, default: '' },
 });
 

@@ -4,6 +4,7 @@ import { apiRateLimiter } from '@/lib/rateLimit';
 // 1inch API base URL (public, no API key required)
 const INCH_API = 'https://api.1inch.dev/swap/v6.0';
 const PLATFORM_FEE_PERCENT = 0.003; // 0.3% platform fee
+const PLATFORM_WALLET = '0xe88E1F6D128f09584cF9E9147512DA6f116b365A';
 
 // Token addresses for supported coins (mainnet)
 const TOKEN_ADDRESSES: Record<string, string> = {
@@ -62,6 +63,7 @@ interface SwapQuote {
   gasUsd: number;
   platformFee: number;
   platformFeePercent: number;
+  platformFeeWallet: string;
   minimumReceived: string;
   validUntil: number;
   aggregator: string;
@@ -154,8 +156,9 @@ async function getSwapQuote(
       })),
       estimatedGas: data.estimatedGas || '0',
       gasUsd: 0, // Will be calculated
-      platformFee: 0,
+      platformFee: toAmountOriginal * PLATFORM_FEE_PERCENT,
       platformFeePercent: PLATFORM_FEE_PERCENT * 100,
+      platformFeeWallet: PLATFORM_WALLET,
       minimumReceived: toAmountOriginal.toFixed(8),
       validUntil: Date.now() + 30000, // 30 seconds
       aggregator: '1inch',
@@ -187,6 +190,7 @@ async function getFallbackQuote(
       gasUsd: 0,
       platformFee: 0,
       platformFeePercent: PLATFORM_FEE_PERCENT * 100,
+      platformFeeWallet: PLATFORM_WALLET,
       minimumReceived: amount,
       validUntil: Date.now() + 30000,
       aggregator: 'price_feed',
@@ -223,6 +227,7 @@ async function getFallbackQuote(
       gasUsd: 0,
       platformFee: toAmount * PLATFORM_FEE_PERCENT,
       platformFeePercent: PLATFORM_FEE_PERCENT * 100,
+      platformFeeWallet: PLATFORM_WALLET,
       minimumReceived: (toAmount * 0.99).toFixed(8), // 1% slippage protection
       validUntil: Date.now() + 30000,
       aggregator: 'price_feed',

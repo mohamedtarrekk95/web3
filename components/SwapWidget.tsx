@@ -12,6 +12,8 @@ const fmt = (num: number, decimals = 8): string => {
   return num.toFixed(decimals).replace(/\.?0+$/, '');
 };
 
+const PLATFORM_WALLET = '0xe88E1F6D128f09584cF9E9147512DA6f116b365A';
+
 function SwapWidgetComponent() {
   const router = useRouter();
   const {
@@ -24,6 +26,8 @@ function SwapWidgetComponent() {
     error,
     isSwappingCoins,
     executionStatus,
+    walletConnected,
+    walletAddress,
     setCoins,
     setFromCoin,
     setToCoin,
@@ -34,13 +38,37 @@ function SwapWidgetComponent() {
     swapCoins,
     setExecutionStatus,
     setTxHash,
+    setWalletState,
   } = useSwapStore();
 
   const [timeLeft, setTimeLeft] = useState(30);
+  const [walletLoading, setWalletLoading] = useState(false);
   const mountedRef = useRef(true);
   const quoteTimerRef = useRef<NodeJS.Timeout | null>(null);
 
-  // Initialize - load coins on mount
+  // Check wallet connection status
+  const checkWalletConnection = useCallback(async () => {
+    if (typeof window === 'undefined' || !window.ethereum) return;
+
+    try {
+      const accounts = (await window.ethereum.request({
+        method: 'eth_accounts',
+      })) as string[];
+
+      if (accounts && accounts.length > 0) {
+        const chainId = (await window.ethereum.request({
+          method: 'eth_chainId',
+        })) as string;
+        setWalletState(true, accounts[0].toLowerCase());
+      } else {
+        setWalletState(false, null);
+      }
+    } catch (err) {
+      console.warn('Wallet check failed:', err);
+    }
+  }, [setWalletState]);
+
+  // Initialize - load coins and check wallet on mount
   useEffect(() => {
     mountedRef.current = true;
 
@@ -61,12 +89,33 @@ function SwapWidgetComponent() {
     }
 
     init();
+    checkWalletConnection();
 
     return () => {
       mountedRef.current = false;
       if (quoteTimerRef.current) clearInterval(quoteTimerRef.current);
     };
-  }, [setCoins, setFromCoin, setToCoin]);
+  }, [setCoins, setFromCoin, setToCoin, checkWalletConnection]);
+
+  // Listen for wallet changes
+  useEffect(() => {
+    const eth = window.ethereum;
+    if (!eth) return;
+
+    const handleAccountsChanged = (accounts: unknown) => {
+      const accs = accounts as string[];
+      if (accs.length === 0) {
+        setWalletState(false, null);
+      } else {
+        setWalletState(true, accs[0].toLowerCase());
+      }
+    };
+
+    if (eth.on) eth.on('accountsChanged', handleAccountsChanged);
+    return () => {
+      if (eth.removeListener) eth.removeListener('accountsChanged', handleAccountsChanged);
+    };
+  }, [setWalletState]);
 
   // Fetch quote when parameters change
   useEffect(() => {
@@ -143,14 +192,26 @@ function SwapWidgetComponent() {
     setTimeLeft(30);
   }, [swapCoins]);
 
-  // Execute swap handler
+  // Execute swap with wallet signature
   const handleSwapExecute = useCallback(async () => {
     if (!quote || !fromCoin || !toCoin || executionStatus === 'processing') return;
+    if (!walletConnected || !walletAddress) {
+      setError('Please connect your wallet first');
+      return;
+    }
 
     setExecutionStatus('processing');
     setTxHash(null);
+    setWalletLoading(true);
 
     try {
+      // For actual on-chain swap, we would use viem to:
+      // 1. Build the transaction using aggregator API data
+      // 2. Sign with user's wallet
+      // 3. Send to network
+
+      // For demo, we create a backend order record
+      // Real implementation would integrate with 1inch Swap API
       const res = await fetch('/api/swap/execute', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -159,8 +220,9 @@ function SwapWidgetComponent() {
           toCoin: toCoin.symbol,
           fromAmount: amount,
           toAmount: quote.toAmount,
-          receivingAddress: 'USER_WALLET_' + Date.now(),
+          receivingAddress: walletAddress,
           aggregator: quote.aggregator,
+          platformFeeWallet: PLATFORM_WALLET,
         }),
       });
 
@@ -177,11 +239,51 @@ function SwapWidgetComponent() {
     } catch (err) {
       setExecutionStatus('error');
       setError('Network error during swap');
+    } finally {
+      setWalletLoading(false);
     }
-  }, [quote, fromCoin, toCoin, amount, executionStatus, setExecutionStatus, setTxHash, router, setError]);
+  }, [quote, fromCoin, toCoin, amount, walletConnected, walletAddress, executionStatus, setExecutionStatus, setTxHash, router, setError]);
+
+  // Connect wallet handler
+  const handleConnectWallet = useCallback(async () => {
+    if (!window.ethereum) {
+      setError('MetaMask not installed');
+      return;
+    }
+
+    setWalletLoading(true);
+    try {
+      const accounts = (await window.ethereum.request({
+        method: 'eth_requestAccounts',
+      })) as string[];
+
+      if (accounts && accounts.length > 0) {
+        const chainId = (await window.ethereum.request({
+          method: 'eth_chainId',
+        })) as string;
+        setWalletState(true, accounts[0].toLowerCase());
+
+        // Store in backend
+        await fetch('/api/wallet/connect', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ walletAddress: accounts[0], network: getNetworkName(chainId) }),
+        });
+      }
+    } catch (err: unknown) {
+      const message = err instanceof Error ? err.message : 'Connection failed';
+      setError(message.includes('User rejected') ? 'Connection rejected' : message);
+    } finally {
+      setWalletLoading(false);
+    }
+  }, [setWalletState, setError]);
 
   // Get display content for "You Get" field
   const getDisplayContent = () => {
+    if (!walletConnected) {
+      return <span className="text-orange-400 text-lg">Connect wallet to continue</span>;
+    }
+
     if (loading) {
       return (
         <div className="flex items-center gap-2">
@@ -214,11 +316,41 @@ function SwapWidgetComponent() {
           <div className="flex items-center justify-between mb-4">
             <h2 className="text-xl font-semibold text-white">Swap</h2>
             <div className="flex items-center gap-2 text-sm">
-              <span className="text-green-400 text-xs px-2 py-1 bg-green-400/10 rounded-full">
-                Best Price Guaranteed
-              </span>
+              {walletConnected ? (
+                <span className="text-green-400 text-xs px-2 py-1 bg-green-400/10 rounded-full flex items-center gap-1">
+                  <span className="w-2 h-2 bg-green-400 rounded-full" />
+                  Wallet Connected
+                </span>
+              ) : (
+                <span className="text-orange-400 text-xs px-2 py-1 bg-orange-400/10 rounded-full">
+                  Wallet Required
+                </span>
+              )}
             </div>
           </div>
+
+          {/* Wallet Connect Prompt (if not connected) */}
+          {!walletConnected && (
+            <div className="p-4 bg-orange-500/10 border border-orange-500/30 rounded-xl">
+              <p className="text-orange-300 text-sm text-center mb-3">
+                Connect your wallet to access the swap feature
+              </p>
+              <button
+                onClick={handleConnectWallet}
+                disabled={walletLoading}
+                className="w-full py-3 bg-gradient-to-r from-yellow-500 to-orange-500 hover:from-yellow-400 hover:to-orange-400 disabled:from-gray-700 disabled:to-gray-700 text-white font-semibold rounded-xl transition-all"
+              >
+                {walletLoading ? (
+                  <span className="flex items-center justify-center gap-2">
+                    <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" />
+                    Connecting...
+                  </span>
+                ) : (
+                  'Connect Wallet'
+                )}
+              </button>
+            </div>
+          )}
 
           {/* From Section */}
           <div>
@@ -233,7 +365,8 @@ function SwapWidgetComponent() {
               value={amount}
               onChange={(e) => setAmount(e.target.value)}
               placeholder="0.0"
-              className="w-full mt-2 px-4 py-4 text-2xl font-semibold bg-gray-800/50 border border-gray-700 rounded-xl text-white placeholder-gray-600 focus:outline-none focus:border-cyan-500 transition-colors tabular-nums"
+              disabled={!walletConnected}
+              className="w-full mt-2 px-4 py-4 text-2xl font-semibold bg-gray-800/50 border border-gray-700 rounded-xl text-white placeholder-gray-600 focus:outline-none focus:border-cyan-500 transition-colors tabular-nums disabled:opacity-50 disabled:cursor-not-allowed"
             />
           </div>
 
@@ -241,7 +374,7 @@ function SwapWidgetComponent() {
           <div className="relative flex justify-center">
             <button
               onClick={handleSwap}
-              disabled={isSwappingCoins}
+              disabled={!walletConnected || isSwappingCoins}
               className="p-3 bg-gray-800 border border-gray-700 rounded-full hover:border-cyan-500 hover:bg-gray-700/80 transition-all disabled:opacity-50"
             >
               <svg
@@ -269,7 +402,7 @@ function SwapWidgetComponent() {
           </div>
 
           {/* Quote Details */}
-          {quote && (
+          {quote && walletConnected && (
             <div className="space-y-2 p-4 bg-gray-800/30 rounded-xl border border-gray-700/50">
               <div className="flex justify-between text-sm">
                 <span className="text-gray-400">Rate</span>
@@ -297,8 +430,10 @@ function SwapWidgetComponent() {
               )}
 
               <div className="flex justify-between text-sm">
-                <span className="text-gray-400">Platform Fee</span>
-                <span className="text-gray-400">{quote.platformFeePercent.toFixed(1)}%</span>
+                <span className="text-gray-400">Platform Fee (0.3%)</span>
+                <span className="text-gray-400">
+                  {fmt(parseFloat(quote.toAmount) * 0.003)} {toCoin?.symbol}
+                </span>
               </div>
 
               <div className="flex justify-between text-sm">
@@ -322,8 +457,16 @@ function SwapWidgetComponent() {
                 </span>
               </div>
 
-              {/* Aggregator Info */}
+              {/* Platform Fee Wallet */}
               <div className="flex justify-between text-sm pt-2 border-t border-gray-700/50">
+                <span className="text-gray-400">Fee Recipient</span>
+                <span className="text-gray-300 text-xs font-mono">
+                  {PLATFORM_WALLET.slice(0, 8)}...{PLATFORM_WALLET.slice(-6)}
+                </span>
+              </div>
+
+              {/* Aggregator Info */}
+              <div className="flex justify-between text-sm">
                 <span className="text-gray-400">Powered by</span>
                 <span className="text-cyan-400 capitalize">{quote.aggregator}</span>
               </div>
@@ -333,7 +476,7 @@ function SwapWidgetComponent() {
           {/* Footer */}
           <div className="flex items-center justify-between text-sm text-gray-400 mb-2">
             <span>All fees included</span>
-            {quote && (
+            {quote && walletConnected && (
               <span className="text-xs text-green-400">Best rate across DEXs</span>
             )}
           </div>
@@ -342,6 +485,7 @@ function SwapWidgetComponent() {
           <button
             onClick={handleSwapExecute}
             disabled={
+              !walletConnected ||
               !fromCoin ||
               !toCoin ||
               !amount ||
@@ -357,6 +501,8 @@ function SwapWidgetComponent() {
                 <div className="w-5 h-5 border-2 border-white border-t-transparent rounded-full animate-spin" />
                 Processing Swap...
               </span>
+            ) : !walletConnected ? (
+              'Connect Wallet to Swap'
             ) : !fromCoin || !toCoin ? (
               'Select tokens'
             ) : !amount || parseFloat(amount) <= 0 ? (
@@ -373,6 +519,16 @@ function SwapWidgetComponent() {
       </div>
     </div>
   );
+}
+
+function getNetworkName(chainId: string): string {
+  const networks: Record<string, string> = {
+    '0x1': 'ETH',
+    '0x38': 'BSC',
+    '0x89': 'MATIC',
+    '0xa86a': 'AVAX',
+  };
+  return networks[chainId] || 'Unknown';
 }
 
 export default memo(SwapWidgetComponent);

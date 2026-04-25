@@ -6,6 +6,7 @@ import Order from '@/lib/models/Order';
 import { getCurrentUser } from '@/lib/auth';
 
 const PLATFORM_FEE_PERCENT = 0.003; // 0.3% platform fee
+const PLATFORM_WALLET = '0xe88E1F6D128f09584cF9E9147512DA6f116b365A';
 
 export async function POST(request: Request) {
   try {
@@ -15,13 +16,10 @@ export async function POST(request: Request) {
     }
 
     const body = await request.json();
-    const { fromCoin, toCoin, fromAmount, toAmount, receivingAddress, aggregator } = body;
+    const { fromCoin, toCoin, fromAmount, toAmount, receivingAddress, aggregator, platformFeeWallet } = body;
 
     if (!fromCoin || !toCoin || !fromAmount || !toAmount || !receivingAddress) {
-      return NextResponse.json(
-        { error: 'Missing required fields' },
-        { status: 400 }
-      );
+      return NextResponse.json({ error: 'Missing required fields' }, { status: 400 });
     }
 
     // Calculate platform fee
@@ -41,12 +39,13 @@ export async function POST(request: Request) {
       toCoin: toCoin.toUpperCase(),
       amountSent: parseFloat(fromAmount),
       amountReceived: netAmount,
-      walletAddress: 'AGGREGATOR_SWAP',
+      walletAddress: receivingAddress, // User's connected wallet
       receivingAddress: receivingAddress,
       status: 'pending',
-      adminNote: `Swap via ${aggregator || 'unknown'} | Platform fee: ${platformFee.toFixed(8)} ${toCoin.toUpperCase()}`,
+      adminNote: `Swap via ${aggregator || 'unknown'} | Wallet: ${receivingAddress.slice(0, 10)}... | Platform fee: ${platformFee.toFixed(8)} ${toCoin.toUpperCase()} to ${PLATFORM_WALLET}`,
       platformFee: platformFee,
       platformFeeCurrency: toCoin.toUpperCase(),
+      platformFeeWallet: platformFeeWallet || PLATFORM_WALLET,
       aggregator,
     });
 
@@ -61,9 +60,10 @@ export async function POST(request: Request) {
       toAmount: netAmount,
       platformFee,
       platformFeePercent: PLATFORM_FEE_PERCENT * 100,
+      platformFeeWallet: platformFeeWallet || PLATFORM_WALLET,
       status: 'pending',
       aggregator: aggregator || 'unknown',
-      message: 'Swap order created. Awaiting blockchain confirmation.',
+      message: 'Swap order created. Platform fee will be deducted automatically.',
     });
   } catch (error) {
     console.error('Swap execution error:', error);
