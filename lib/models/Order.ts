@@ -16,6 +16,9 @@ export interface IOrder extends Document {
   telegramUsername: string;
   txid: string;
   createdAt: Date;
+  platformFee?: number;
+  platformFeeCurrency?: string;
+  aggregator?: string;
 }
 
 const OrderSchema = new Schema<IOrder>({
@@ -34,6 +37,9 @@ const OrderSchema = new Schema<IOrder>({
   telegramUsername: { type: String, default: '' },
   txid: { type: String, default: '' },
   createdAt: { type: Date, default: Date.now },
+  platformFee: { type: Number, default: 0 },
+  platformFeeCurrency: { type: String, default: '' },
+  aggregator: { type: String, default: '' },
 });
 
 export default mongoose.models.Order || mongoose.model<IOrder>('Order', OrderSchema);

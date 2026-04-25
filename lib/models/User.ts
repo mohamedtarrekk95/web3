@@ -6,6 +6,11 @@ export interface IUser extends Document {
   name: string;
   role: 'user' | 'admin';
   createdAt: Date;
+  wallets: Array<{
+    address: string;
+    network: string;
+    connectedAt: Date;
+  }>;
 }
 
 const UserSchema = new Schema<IUser>({
@@ -14,6 +19,11 @@ const UserSchema = new Schema<IUser>({
   name: { type: String, required: true },
   role: { type: String, enum: ['user', 'admin'], default: 'user' },
   createdAt: { type: Date, default: Date.now },
+  wallets: [{
+    address: { type: String, default: '' },
+    network: { type: String, default: 'ETH' },
+    connectedAt: { type: Date, default: Date.now },
+  }],
 });
 
 export default mongoose.models.User || mongoose.model<IUser>('User', UserSchema);

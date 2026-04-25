@@ -6,8 +6,8 @@ import { usePathname } from 'next/navigation';
 export default function FloatingP2PButton() {
   const pathname = usePathname();
 
-  // Don't show on P2P pages themselves
-  if (pathname?.startsWith('/p2p') || pathname?.startsWith('/admin')) {
+  // Don't show on P2P or Swap pages
+  if (pathname?.startsWith('/p2p') || pathname?.startsWith('/swap') || pathname?.startsWith('/admin')) {
     return null;
   }
 

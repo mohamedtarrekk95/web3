@@ -3,6 +3,7 @@
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { useAuth } from '@/lib/useAuth';
+import WalletButton from './WalletButton';
 import { useState, useEffect } from 'react';
 
 // Google Translate types
@@ -94,6 +95,13 @@ export default function Navbar() {
             ) : isAuthenticated ? (
               <>
                 <Link
+                  href="/swap"
+                  className="px-4 py-2 text-sm text-cyan-400 hover:text-cyan-300 transition-colors"
+                >
+                  Swap
+                </Link>
+                <WalletButton />
+                <Link
                   href="/p2p"
                   className="px-4 py-2 text-sm text-green-400 hover:text-green-300 transition-colors"
                 >
@@ -164,6 +172,16 @@ export default function Navbar() {
         {mobileMenuOpen && (
           <div className="md:hidden py-4 border-t border-gray-800">
             <div className="flex flex-col gap-2">
+              <Link
+                href="/swap"
+                className="px-4 py-2 text-sm text-cyan-400 hover:text-cyan-300 transition-colors"
+                onClick={() => setMobileMenuOpen(false)}
+              >
+                Swap
+              </Link>
+              <div className="px-4 py-2" onClick={() => setMobileMenuOpen(false)}>
+                <WalletButton />
+              </div>
               <Link
                 href="/p2p"
                 className="px-4 py-2 text-sm text-green-400 hover:text-green-300 transition-colors"
